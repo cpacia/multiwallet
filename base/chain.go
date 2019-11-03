@@ -66,7 +66,7 @@ var errScanInProgress = errors.New("scan already in progress")
 
 type scanJob struct {
 	fromHeight uint64
-	done       chan error
+	errChan    chan error
 }
 
 type saveJob struct {
@@ -74,7 +74,7 @@ type saveJob struct {
 }
 
 type bestBlockReq struct {
-	done chan iwallet.BlockInfo
+	infoChan chan iwallet.BlockInfo
 }
 
 type removeUnconfirmed struct {
@@ -130,22 +130,19 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 				select {
 				case <-scanSem:
 				default:
-					msg.done <- errScanInProgress
-					close(msg.done)
+					msg.errChan <- errScanInProgress
 				}
 
 				addrs, err := cm.keyManager.GetAddresses()
 				if err != nil {
-					msg.done <- err
-					close(msg.done)
+					msg.errChan <- err
 					continue
 				}
 
 				scanSem <- struct{}{}
 				go func(addrs []iwallet.Address, job *scanJob) {
 					err := cm.scanTransactions(addrs, job.fromHeight)
-					msg.done <- err
-					close(msg.done)
+					msg.errChan <- err
 				}(append(addrs, cm.watchOnly...), msg)
 			case *saveJob:
 				if _, err := cm.saveTransactionsAndUtxos(msg.txs); err != nil {
@@ -155,8 +152,7 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 				delete(cm.unconfirmedTxs, msg.txid)
 
 			case *bestBlockReq:
-				msg.done <- cm.best
-				close(msg.done)
+				msg.infoChan <- cm.best
 
 			case *addWatchOnly:
 				cm.watchOnly = append(cm.watchOnly, msg.addr)
@@ -180,13 +176,13 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 			previousBest := cm.best
 			cm.best = blockInfo
 			if previousBest.BlockID.String() != blockInfo.BlockID.String() {
-				done := make(chan error)
+				errChan := make(chan error)
 				cm.msgChan <- &scanJob{
 					fromHeight: 0,
-					done:       done,
+					errChan:    errChan,
 				}
 
-				err := <-done
+				err := <-errChan
 				if err != nil {
 					cm.logger.Errorf("Error scanning transactions after reorg detected, coin %s: %s", cm.coinType, err)
 				}
@@ -268,10 +264,12 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 
 // BestBlock returns the current best block for the chain.
 func (cm *ChainManager) BestBlock() iwallet.BlockInfo {
-	done := make(chan iwallet.BlockInfo)
-	cm.msgChan <- &bestBlockReq{done: done}
+	infoChan := make(chan iwallet.BlockInfo)
+	defer close(infoChan)
 
-	bestBlock := <-done
+	cm.msgChan <- &bestBlockReq{infoChan: infoChan}
+
+	bestBlock := <-infoChan
 	return bestBlock
 }
 
@@ -288,15 +286,17 @@ func (cm *ChainManager) ScanTransactions(fromHeight uint64) {
 	backoff.MaxElapsedTime = 0
 	backoff.InitialInterval = time.Second
 
+	errChan := make(chan error)
+	defer close(errChan)
+
 	for {
 		cm.logger.Infof("Scanning transactions for coin %s", cm.coinType.CurrencyCode())
-		done := make(chan error)
 		cm.msgChan <- &scanJob{
 			fromHeight: fromHeight,
-			done:       done,
+			errChan:       errChan,
 		}
 
-		err := <-done
+		err := <-errChan
 		if err == errScanInProgress {
 			cm.logger.Warning("Scan job submitted with scan already in progress")
 			return
