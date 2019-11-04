@@ -6,6 +6,7 @@ import (
 	"errors"
 	iwallet "github.com/cpacia/wallet-interface"
 	"math/rand"
+	"strings"
 	"sync"
 	"time"
 )
@@ -26,7 +27,7 @@ func NewMockChainClient() *MockChainClient {
 		mtx: sync.RWMutex{},
 		blocks: []iwallet.BlockInfo{
 			{
-				BlockID:   "0000000000000000000000000000000000000000000000000000000000000000",
+				BlockID:   iwallet.BlockID(strings.Repeat("0", 64)),
 				PrevBlock: "",
 				Height:    0,
 				BlockTime: time.Now(),
@@ -242,7 +243,7 @@ func NewMockTransaction(from *iwallet.SpendInfo, to *iwallet.Address) iwallet.Tr
 	rand.Read(txid)
 
 	tx := iwallet.Transaction{
-		ID:        iwallet.TransactionID(hex.EncodeToString(txid)),
+		ID: iwallet.TransactionID(hex.EncodeToString(txid)),
 	}
 
 	if from != nil {

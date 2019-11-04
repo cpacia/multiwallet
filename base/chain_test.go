@@ -14,30 +14,13 @@ import (
 	"time"
 )
 
-func setupTestTables(db database.Database) error {
-	return db.Update(func(tx database.Tx) error {
-		models := []interface{}{
-			&database.CoinRecord{},
-			&database.UtxoRecord{},
-			&database.TransactionRecord{},
-			&database.AddressRecord{},
-		}
-		for _, model := range models {
-			if err := tx.Migrate(model); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
 func newTestChain() (*ChainManager, *MockChainClient, error) {
 	db, err := sqlitedb.NewMemoryDB()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if err := setupTestTables(db); err != nil {
+	if err := database.InitializeDatabase(db); err != nil {
 		return nil, nil, err
 	}
 
