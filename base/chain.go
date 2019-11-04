@@ -20,6 +20,7 @@ type ChainConfig struct {
 	CoinType         iwallet.CoinType
 	Logger           *logging.Logger
 	WatchOnlyAddress []iwallet.Address
+	EventBus         Bus
 	TransactionChan  chan<- iwallet.Transaction
 }
 
@@ -36,6 +37,7 @@ type ChainManager struct {
 	unconfirmedTxs  map[iwallet.TransactionID]iwallet.Transaction
 	watchOnly       []iwallet.Address
 	transactionChan chan<- iwallet.Transaction
+	eventBus        Bus
 	msgChan         chan interface{}
 	done            chan struct{}
 }
@@ -55,6 +57,7 @@ func NewChainManager(config *ChainConfig) *ChainManager {
 		watchOnly:       config.WatchOnlyAddress,
 		unconfirmedTxs:  make(map[iwallet.TransactionID]iwallet.Transaction),
 		transactionChan: config.TransactionChan,
+		eventBus:        config.EventBus,
 
 		backoff: backoff,
 		msgChan: make(chan interface{}),
@@ -75,6 +78,10 @@ type saveJob struct {
 
 type bestBlockReq struct {
 	infoChan chan iwallet.BlockInfo
+}
+
+type addUnconfirmed struct {
+	tx iwallet.Transaction
 }
 
 type removeUnconfirmed struct {
@@ -104,13 +111,29 @@ func (cm *ChainManager) Start() {
 		}
 	}
 
+	if cm.eventBus != nil {
+		cm.eventBus.Emit(&ChainStartedEvent{})
+	}
+
 	go cm.chainHandler(transactionSub, blocksSub)
 	go cm.ScanTransactions(fromHeight)
 }
 
 // Stop shuts down the ChainManager
-func (cm *ChainManager) Stop() {
+func (cm *ChainManager) Stop() error {
 	close(cm.done)
+
+	return cm.db.Update(func(tx database.Tx) error {
+		var rec database.CoinRecord
+		if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&rec).Error; err != nil {
+			return err
+		}
+
+		rec.BestBlockHeight = cm.best.Height
+		rec.BestBlockID = cm.best.BlockID.String()
+
+		return tx.Save(&rec)
+	})
 }
 
 // chainHandler is the main loop for the ChainManager. It guards against concurrent
@@ -148,6 +171,10 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 				if _, err := cm.saveTransactionsAndUtxos(msg.txs); err != nil {
 					cm.logger.Errorf("Error saving incoming transaction for coin %s: %s", cm.coinType, err)
 				}
+
+			case *addUnconfirmed:
+				cm.unconfirmedTxs[msg.tx.ID] = msg.tx
+
 			case *removeUnconfirmed:
 				delete(cm.unconfirmedTxs, msg.txid)
 
@@ -176,17 +203,20 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 			previousBest := cm.best
 			cm.best = blockInfo
 			if previousBest.BlockID.String() != blockInfo.BlockID.String() {
-				errChan := make(chan error)
-				cm.msgChan <- &scanJob{
-					fromHeight: 0,
-					errChan:    errChan,
-				}
+				go func() {
+					errChan := make(chan error)
+					cm.msgChan <- &scanJob{
+						fromHeight: 0,
+						errChan:    errChan,
+					}
 
-				err := <-errChan
-				if err != nil {
-					cm.logger.Errorf("Error scanning transactions after reorg detected, coin %s: %s", cm.coinType, err)
-				}
+					err := <-errChan
+					if err != nil {
+						cm.logger.Errorf("Error scanning transactions after reorg detected, coin %s: %s", cm.coinType, err)
+					}
+				}()
 			}
+			cm.eventBus.Emit(&BlockReceivedEvent{})
 
 		case <-cm.done:
 			transactionSub.Close()
@@ -231,16 +261,16 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 
 	cm.best = blockchainInfo
 
-	var confirms uint64
+	inMainChain := true
 	if currentBestBlock.Height > 0 {
-		confirms, err = cm.client.GetBlockConfirmations(currentBestBlock.BlockID)
+		inMainChain, err = cm.client.IsBlockInMainChain(currentBestBlock.BlockID)
 		if err != nil {
 			return nil, nil, 0, err
 		}
 	}
 
-	syncFrom := cm.best.Height
-	if confirms == 0 {
+	syncFrom := currentBestBlock.Height
+	if !inMainChain {
 		syncFrom = 0
 	}
 
@@ -290,22 +320,22 @@ func (cm *ChainManager) ScanTransactions(fromHeight uint64) {
 	defer close(errChan)
 
 	for {
-		cm.logger.Infof("Scanning transactions for coin %s", cm.coinType.CurrencyCode())
+		cm.logger.Infof("[%s] Scanning transactions", cm.coinType.CurrencyCode())
 		cm.msgChan <- &scanJob{
 			fromHeight: fromHeight,
-			errChan:       errChan,
+			errChan:    errChan,
 		}
 
 		err := <-errChan
 		if err == errScanInProgress {
-			cm.logger.Warning("Scan job submitted with scan already in progress")
+			cm.logger.Warningf("[%s] Scan job submitted with scan already in progress", cm.coinType)
 			return
 		} else if err == nil {
 			return
 		}
 
 		backoffDuration := backoff.NextBackOff()
-		cm.logger.Errorf("Error scanning transactions for coin %s: %s. Retrying in %s", cm.coinType, err, backoffDuration)
+		cm.logger.Errorf("[%s] Error scanning transactions: %s. Retrying in %s", cm.coinType, err, backoffDuration)
 		select {
 		case <-time.After(backoffDuration):
 			continue
@@ -331,7 +361,6 @@ func (cm *ChainManager) scanTransactions(addrs []iwallet.Address, fromHeight uin
 		}
 		close(addrChan)
 	}()
-
 	var wg sync.WaitGroup
 	wg.Add(len(addrs))
 	go func() {
@@ -340,7 +369,7 @@ func (cm *ChainManager) scanTransactions(addrs []iwallet.Address, fromHeight uin
 				defer wg.Done()
 				txs, err := cm.client.GetAddressTransactions(address, fromHeight)
 				if err != nil {
-					cm.logger.Errorf("Error fetching transactions for address %s, coin %s: %s", address, cm.coinType, err)
+					cm.logger.Errorf("[%s] Error fetching transactions for address %s: %s", cm.coinType, address, err)
 					return
 				}
 				responseChan <- txs
@@ -351,7 +380,7 @@ func (cm *ChainManager) scanTransactions(addrs []iwallet.Address, fromHeight uin
 		close(responseChan)
 	}()
 
-	var txs []iwallet.Transaction
+	txs := make([]iwallet.Transaction, 0, len(addrs))
 	for resp := range responseChan {
 		txs = append(txs, resp...)
 	}
@@ -369,21 +398,16 @@ func (cm *ChainManager) scanTransactions(addrs []iwallet.Address, fromHeight uin
 		}
 		return cm.scanTransactions(addrs, fromHeight)
 	}
+	cm.eventBus.Emit(&ScanCompleteEvent{})
 	return nil
 }
 
 // updateUnconfirmed will query the ChainClient to find out if any of the unconfirmed transactions
 // received their first confirmation.
 func (cm *ChainManager) updateUnconfirmed(unconfirmed map[iwallet.TransactionID]iwallet.Transaction) {
-	type resp struct {
-		txid      iwallet.TransactionID
-		height    uint64
-		blockTime time.Time
-	}
-
 	var (
 		txidChan     = make(chan iwallet.TransactionID, 20)
-		responseChan = make(chan resp, len(unconfirmed))
+		responseChan = make(chan iwallet.Transaction, len(unconfirmed))
 	)
 
 	go func() {
@@ -400,16 +424,12 @@ func (cm *ChainManager) updateUnconfirmed(unconfirmed map[iwallet.TransactionID]
 		for txid := range txidChan {
 			go func(id iwallet.TransactionID) {
 				defer wg.Done()
-				blockInfo, err := cm.client.GetTransactionConfirmationInfo(id)
+				tx, err := cm.client.GetTransaction(id)
 				if err != nil {
-					cm.logger.Errorf("Error querying block height for transaction %s, coin %s: %s", id, cm.coinType, err)
+					cm.logger.Errorf("[%s] Error querying for transaction %s: %s", cm.coinType, id, err)
 					return
 				}
-				responseChan <- resp{
-					txid:      id,
-					height:    blockInfo.Height,
-					blockTime: blockInfo.BlockTime,
-				}
+				responseChan <- tx
 			}(txid)
 
 		}
@@ -417,34 +437,49 @@ func (cm *ChainManager) updateUnconfirmed(unconfirmed map[iwallet.TransactionID]
 		close(responseChan)
 	}()
 
-	var responses []resp
+	responses := make([]iwallet.Transaction, 0, len(unconfirmed))
 	for resp := range responseChan {
 		responses = append(responses, resp)
 	}
 
-	var updated []iwallet.Transaction
+	updated := make([]iwallet.Transaction, 0, len(unconfirmed))
 	cm.db.Update(func(tx database.Tx) error {
 		for _, resp := range responses {
-			if resp.height > 0 {
+			if resp.Height > 0 && resp.BlockInfo != nil {
 				var record database.TransactionRecord
-				err := tx.Read().Where("txid=?", resp.txid.String()).First(&record).Error
+				err := tx.Read().Where("txid=?", resp.ID.String()).First(&record).Error
 				if err == nil {
-					record.BlockHeight = resp.height
-					record.Timestamp = resp.blockTime
+					newRecord, err := database.NewTransactionRecord(resp, resp.BlockInfo.BlockTime, cm.coinType)
+					if err != nil {
+						cm.logger.Errorf("[%s] Error updating unconfirmed transaction %s: %s", cm.coinType, resp.ID, err)
+					}
 
-					if err := tx.Save(&record); err != nil {
-						cm.logger.Errorf("Error updating unconfirmed transaction %s, coin %s: %s", resp.txid, cm.coinType, err)
+					if err := tx.Save(&newRecord); err != nil {
+						cm.logger.Errorf("[%s] Error updating unconfirmed transaction %s: %s", cm.coinType, resp.ID, err)
 					}
 				} else if !gorm.IsRecordNotFoundError(err) {
-					cm.logger.Errorf("Error loading unconfirmed transaction %s, coin %s: %s", resp.txid, cm.coinType, err)
+					cm.logger.Errorf("[%s] Error loading unconfirmed transaction %s: %s", cm.coinType, resp.ID, err)
+				}
+
+				for _, to := range resp.To {
+					var utxo database.UtxoRecord
+					err = tx.Read().Where("outpoint=?", hex.EncodeToString(to.ID)).First(&utxo).Error
+					if err == nil {
+						utxo.Height = resp.Height
+						if err := tx.Save(&utxo); err != nil {
+							cm.logger.Errorf("[%s] Error updating unconfirmed utxo %s: %s", cm.coinType, resp.ID, err)
+						}
+					} else if !gorm.IsRecordNotFoundError(err) {
+						cm.logger.Errorf("[%s] Error loading unconfirmed utxo %s: %s", cm.coinType, resp.ID, err)
+					}
 				}
 
 				// Note that if the err is a NotFoundError this is likely a watch only address as
 				// we don't save watch only transactions in the database. In this case we still
 				// watch to notify subscribes and delete the unconfirmed tx from memory.
 
-				updated = append(updated, unconfirmed[resp.txid])
-				cm.msgChan <- &removeUnconfirmed{txid: resp.txid}
+				updated = append(updated, unconfirmed[resp.ID])
+				cm.msgChan <- &removeUnconfirmed{txid: resp.ID}
 			}
 		}
 		return nil
@@ -456,14 +491,28 @@ func (cm *ChainManager) updateUnconfirmed(unconfirmed map[iwallet.TransactionID]
 			cm.transactionChan <- tx
 		}
 	}
+
+	cm.eventBus.Emit(&UpdateUnconfirmedCompleteEvent{})
 }
 
 // saveTransactionsAndUtxos updates both the transactions and utxos tables in the
 // database with the new transactions provided.
 func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (int, error) {
-	numNew := 0
-	var newOrUpdated []iwallet.Transaction
-	err := cm.db.Update(func(dbtx database.Tx) error {
+	var (
+		newOrUpdated []iwallet.Transaction
+		numNew       = 0
+		addrMap      = make(map[iwallet.Address]bool)
+	)
+
+	addrs, err := cm.keyManager.GetAddresses()
+	if err != nil {
+		return 0, err
+	}
+
+	for _, addr := range addrs {
+		addrMap[addr] = true
+	}
+	err = cm.db.Update(func(dbtx database.Tx) error {
 		// First load all the transactions from the db.
 		var savedTxs []database.TransactionRecord
 		if err := dbtx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedTxs).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
@@ -476,22 +525,11 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 			txMap[tx.TransactionID()] = tx
 		}
 
-		// Do the same for our addresses
-		addrs, err := cm.keyManager.GetAddresses()
-		if err != nil {
-			return err
-		}
-
-		addrMap := make(map[iwallet.Address]bool)
-		for _, addr := range addrs {
-			addrMap[addr] = true
-		}
-
 		// For each new transaction that we are trying to save, if it already exists in the
 		// database, just update the height and timestamp if necessary. If it doesn't already
 		// exist then save it.
 		for _, tx := range newTxs {
-			relevant := isRelevantTransaction(tx, addrMap)
+			relevant := isRelevantTransaction(&tx, addrMap)
 			savedTx, ok := txMap[tx.ID]
 			if ok && savedTx.Height() != tx.Height {
 				savedTx.BlockHeight = tx.Height
@@ -520,6 +558,9 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 				txMap[tx.ID] = *txr
 				numNew++
 				newOrUpdated = append(newOrUpdated, tx)
+				if tx.Height == 0 {
+					cm.msgChan <- &addUnconfirmed{tx: tx}
+				}
 			} else if !relevant {
 				// Not relevant transactions must be watch-only since they made
 				// it into this function but do not match any of our addresses.
@@ -550,6 +591,7 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 						Outpoint:  outpoint,
 						Height:    tx.Height,
 						Timestamp: t,
+						Amount:    to.Amount.String(),
 						Coin:      cm.coinType.CurrencyCode(),
 					}
 				}
@@ -611,10 +653,14 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 		}
 	}
 
+	if numNew > 0 {
+		cm.logger.Infof("[%s] Detected %d new transactions", cm.coinType.CurrencyCode(), numNew)
+	}
+
 	return numNew, err
 }
 
-func isRelevantTransaction(tx iwallet.Transaction, addrs map[iwallet.Address]bool) bool {
+func isRelevantTransaction(tx *iwallet.Transaction, addrs map[iwallet.Address]bool) bool {
 	for _, from := range tx.From {
 		if addrs[from.Address] {
 			return true

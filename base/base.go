@@ -1,12 +1,15 @@
 package base
 
-import iwallet "github.com/cpacia/wallet-interface"
+import (
+	"github.com/cpacia/multiwallet/database"
+	iwallet "github.com/cpacia/wallet-interface"
+)
 
 // DBTx satisfies the iwallet.Tx interface.
 type DBTx struct {
 	isClosed bool
 
-	onCommit func() error
+	OnCommit func() error
 }
 
 // Commit will commit the transaction.
@@ -14,8 +17,8 @@ func (tx *DBTx) Commit() error {
 	if tx.isClosed {
 		panic("dbtx is closed")
 	}
-	if tx.onCommit != nil {
-		if err := tx.onCommit(); err != nil {
+	if tx.OnCommit != nil {
+		if err := tx.OnCommit(); err != nil {
 			tx.Rollback()
 			return err
 		}
@@ -29,12 +32,16 @@ func (tx *DBTx) Rollback() error {
 	if tx.isClosed {
 		panic("dbtx is closed")
 	}
-	tx.onCommit = nil
+	tx.OnCommit = nil
 	tx.isClosed = true
 	return nil
 }
 
-type WalletBase struct{}
+type WalletBase struct {
+	ChainManager *ChainManager
+	ChainClient  ChainClient
+	DB           database.Database
+}
 
 // Begin returns a new database transaction. A transaction must only be used
 // once. After Commit() or Rollback() is called the transaction can be discarded.

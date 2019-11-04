@@ -17,11 +17,13 @@ type ChainClient interface {
 
 	GetAddressTransactions(addr iwallet.Address, fromHeight uint64) ([]iwallet.Transaction, error)
 
-	GetTransactionConfirmationInfo(id iwallet.TransactionID) (iwallet.BlockInfo, error)
+	GetTransaction(id iwallet.TransactionID) (iwallet.Transaction, error)
 
-	GetBlockConfirmations(id iwallet.BlockID) (uint64, error)
+	IsBlockInMainChain(id iwallet.BlockID) (bool, error)
 
 	SubscribeTransactions(addrs []iwallet.Address) (*TransactionSubscription, error)
 
 	SubscribeBlocks() (*BlockSubscription, error)
+
+	Broadcast(tx iwallet.Transaction) error
 }

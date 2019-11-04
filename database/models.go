@@ -12,7 +12,7 @@ type CoinRecord struct {
 	MasterPriv         string
 	EncryptedMasterKey bool
 	MasterPub          string
-	Coin               string `gorm:"unique;not null"`
+	Coin               string `gorm:"primary_key"`
 	BestBlockHeight    uint64
 	BestBlockID        string
 }
@@ -28,10 +28,10 @@ func (c *CoinRecord) MasterPublicKey() (*hd.ExtendedKey, error) {
 	return hd.NewKeyFromString(c.MasterPub)
 }
 
-func (c *CoinRecord) BlockchainInfo() iwallet.BlockchainInfo {
-	return iwallet.BlockchainInfo{
-		BestBlock: iwallet.BlockID(c.BestBlockID),
-		Height:    c.BestBlockHeight,
+func (c *CoinRecord) BlockchainInfo() iwallet.BlockInfo {
+	return iwallet.BlockInfo{
+		BlockID: iwallet.BlockID(c.BestBlockID),
+		Height:  c.BestBlockHeight,
 	}
 }
 
@@ -93,5 +93,6 @@ type UtxoRecord struct {
 	Outpoint  string `gorm:"primary_key;unique;not null"`
 	Height    uint64
 	Timestamp time.Time
+	Amount    string
 	Coin      string
 }
