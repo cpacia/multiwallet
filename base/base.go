@@ -74,7 +74,7 @@ func (w *WalletBase) CloseWallet() error {
 // received on the address. This, however, is just a wallet implementation
 // detail.
 func (w *WalletBase) CurrentAddress() (iwallet.Address, error) {
-	return w.KeyManager.CurrentAddress()
+	return w.KeyManager.CurrentAddress(false)
 }
 
 // NewAddress should return a new, never before used address. This is called
@@ -86,7 +86,7 @@ func (w *WalletBase) CurrentAddress() (iwallet.Address, error) {
 // Wallets that only use a single address, like Ethereum, should save the
 // passed in order ID locally such as to associate payments with orders.
 func (w *WalletBase) NewAddress() (iwallet.Address, error) {
-	return w.KeyManager.NewAddress()
+	return w.KeyManager.NewAddress(false)
 }
 
 // HasKey returns true if the wallet can spend from the given address.
