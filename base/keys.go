@@ -84,7 +84,7 @@ func NewKeyManager(db database.Database, masterPrivKey, masterPubkey *hd.Extende
 func (km *KeyManager) GetAddresses() ([]iwallet.Address, error) {
 	var records []database.AddressRecord
 	err := km.db.Update(func(tx database.Tx) error {
-		return tx.Read().Find(&records).Error
+		return tx.Read().Where("coin=?", km.coin.CurrencyCode()).Find(&records).Error
 	})
 	if err != nil && !gorm.IsRecordNotFoundError(err) {
 		return nil, err
@@ -96,67 +96,129 @@ func (km *KeyManager) GetAddresses() ([]iwallet.Address, error) {
 	return addrs, nil
 }
 
+func (km *KeyManager) CurrentAddress() (iwallet.Address, error) {
+	var record database.AddressRecord
+	err := km.db.View(func(tx database.Tx) error {
+		return tx.Read().Order("key_index asc").Where("coin=?", km.coin.CurrencyCode()).Where("used=?", false).Where("change=?", false).First(&record).Error
+	})
+	if err != nil {
+		return iwallet.Address{}, err
+	}
+	return record.Address(), nil
+}
+
+func (km *KeyManager) NewAddress() (iwallet.Address, error) {
+	var address iwallet.Address
+	err := km.db.Update(func(tx database.Tx) error {
+		var record database.AddressRecord
+		err := tx.Read().Order("key_index desc").Where("coin=?", km.coin.CurrencyCode()).Where("change=?", false).First(&record).Error
+		if err != nil {
+			return err
+		}
+		newKey, err := km.externalPubkey.Child(uint32(record.KeyIndex + 1))
+		if err != nil {
+			return err
+		}
+
+		address, err = km.addrFunc(newKey)
+		if err != nil {
+			return err
+		}
+
+		newRecord := &database.AddressRecord{
+			Addr:     address.String(),
+			KeyIndex: record.KeyIndex + 1,
+			Change:   false,
+			Used:     false,
+			Coin:     km.coin.CurrencyCode(),
+		}
+		if err := km.extendKeychain(tx); err != nil {
+			return err
+		}
+		return tx.Save(&newRecord)
+	})
+	return address, err
+}
+
+func (km *KeyManager) HasKey(addr iwallet.Address) (bool, error) {
+	has := false
+	err := km.db.View(func(tx database.Tx) error {
+		var record database.AddressRecord
+		err := tx.Read().Where("coin=?", km.coin.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
+		if err != nil && !gorm.IsRecordNotFoundError(err) {
+			return err
+		} else if err == nil {
+			has = true
+		}
+		return nil
+	})
+	return has, err
+}
+
 func (km *KeyManager) ExtendKeychain() error {
-	internalUnused, externalUnused, err := km.getLookaheadWindows()
+	return km.db.Update(func(tx database.Tx) error {
+		return km.extendKeychain(tx)
+	})
+}
+
+func (km *KeyManager) extendKeychain(tx database.Tx) error {
+	internalUnused, externalUnused, err := km.getLookaheadWindows(tx)
 	if err != nil {
 		return err
 	}
 	if internalUnused < LookaheadWindow {
-		if err := km.createNewKeys(true, LookaheadWindow-internalUnused); err != nil {
+		if err := km.createNewKeys(tx, true, LookaheadWindow-internalUnused); err != nil {
 			return err
 		}
 	}
 	if externalUnused < LookaheadWindow {
-		if err := km.createNewKeys(false, LookaheadWindow-externalUnused); err != nil {
+		if err := km.createNewKeys(tx, false, LookaheadWindow-externalUnused); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (km *KeyManager) createNewKeys(change bool, numKeys int) error {
-	return km.db.Update(func(tx database.Tx) error {
-		var record database.AddressRecord
-		err := tx.Read().Order("key_index desc").Where("used=?", true).Where("change=?", change).First(&record).Error
-		if err != nil && !gorm.IsRecordNotFoundError(err) {
+func (km *KeyManager) createNewKeys(dbtx database.Tx, change bool, numKeys int) error {
+	var record database.AddressRecord
+	err := dbtx.Read().Order("key_index desc").Where("coin=?", km.coin.CurrencyCode()).Where("used=?", true).Where("change=?", change).First(&record).Error
+	if err != nil && !gorm.IsRecordNotFoundError(err) {
+		return err
+	}
+	nextIndex := record.KeyIndex + 1
+	for i := 0; i < numKeys; i++ {
+		var newKey *hd.ExtendedKey
+		if change {
+			newKey, err = km.internalPubkey.Child(uint32(nextIndex + i))
+		} else {
+			newKey, err = km.externalPubkey.Child(uint32(nextIndex + i))
+		}
+
+		addr, err := km.addrFunc(newKey)
+		if err != nil {
 			return err
 		}
-		nextIndex := record.KeyIndex + 1
-		for i := 0; i < numKeys; i++ {
-			var newKey *hd.ExtendedKey
-			if change {
-				newKey, err = km.internalPubkey.Child(uint32(nextIndex + i))
-			} else {
-				newKey, err = km.externalPubkey.Child(uint32(nextIndex + i))
-			}
 
-			addr, err := km.addrFunc(newKey)
-			if err != nil {
-				return err
-			}
-
-			newRecord := &database.AddressRecord{
-				Addr:     addr.String(),
-				KeyIndex: nextIndex + i,
-				Change:   change,
-				Used:     false,
-				Coin:     km.coin.CurrencyCode(),
-			}
-
-			if err := tx.Save(&newRecord); err != nil {
-				return err
-			}
+		newRecord := &database.AddressRecord{
+			Addr:     addr.String(),
+			KeyIndex: nextIndex + i,
+			Change:   change,
+			Used:     false,
+			Coin:     km.coin.CurrencyCode(),
 		}
-		return nil
-	})
+
+		if err := dbtx.Save(&newRecord); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-func (km *KeyManager) getLookaheadWindows() (internalUnused, externalUnused int, err error) {
+func (km *KeyManager) getLookaheadWindows(dbtx database.Tx) (internalUnused, externalUnused int, err error) {
 	var addressRecords []database.AddressRecord
-	err = km.db.View(func(tx database.Tx) error {
-		return tx.Read().Where("coin=?", km.coin.CurrencyCode()).Find(&addressRecords).Error
-	})
-	if !gorm.IsRecordNotFoundError(err) && err != nil {
+	rerr := dbtx.Read().Where("coin=?", km.coin.CurrencyCode()).Find(&addressRecords).Error
+	if rerr != nil && !gorm.IsRecordNotFoundError(rerr) {
+		err = rerr
 		return
 	}
 	internalLastUsed := -1

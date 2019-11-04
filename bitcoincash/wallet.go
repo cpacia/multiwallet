@@ -6,8 +6,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/cpacia/multiwallet/base"
 	iwallet "github.com/cpacia/wallet-interface"
-	"multiwallet/base"
 	"time"
 )
 
@@ -114,90 +114,12 @@ func (w *MockWallet) Start() {
 	}()
 }
 
-// WalletExists should return whether the wallet exits or has been
-// initialized.
-func (w *MockWallet) WalletExists() bool {
-	return true
-}
-
-// CreateWallet should initialize the wallet. This will be called by
-// OpenBazaar if WalletExists() returns false.
-//
-// The xPriv may be used to create a bip44 keychain. The xPriv is
-// `cointype` level in the bip44 path. For example in the following
-// path the wallet should only derive the paths after `cointype` as
-// m and purpose' are kept private by OpenBazaar so this wallet cannot
-// derive keys from other wallets.
-//
-// m / purpose' / coin_type' / account' / change / address_index
-//
-// The birthday can be used determine where to sync state from if
-// appropriate.
-//
-// If the wallet does not implement WalletCrypter then pw will be
-// nil. Otherwise it should be used to encrypt the private keys.
-func (w *MockWallet) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time.Time) error {
-	return nil
-}
-
-// Open wallet will be called each time on OpenBazaar start. It
-// will also be called after CreateWallet().
-func (w *MockWallet) OpenWallet() error {
-	return nil
-}
-
-// CloseWallet will be called when OpenBazaar shuts down.
-func (w *MockWallet) CloseWallet() error {
-	close(w.done)
-	return nil
-}
-
 // BlockchainInfo returns the best hash and height of the chain.
 func (w *MockWallet) BlockchainInfo() (iwallet.BlockchainInfo, error) {
 	w.mtx.RLock()
 	defer w.mtx.RUnlock()
 
 	return w.blockchainInfo, nil
-}
-
-// CurrentAddress is called when requesting this wallet's receiving
-// address. It is customary that the wallet return the first unused
-// address and only return a different address after funds have been
-// received on the address. This, however, is just a wallet implementation
-// detail.
-func (w *MockWallet) CurrentAddress() (iwallet.Address, error) {
-	w.mtx.Lock()
-	defer w.mtx.Unlock()
-
-	for addr, used := range w.addrs {
-		if !used {
-			return addr, nil
-		}
-	}
-	b := make([]byte, 20)
-	rand.Read(b)
-	addr := iwallet.NewAddress(hex.EncodeToString(b), iwallet.CtTestnetMock)
-	w.addrs[addr] = false
-	return addr, nil
-}
-
-// NewAddress should return a new, never before used address. This is called
-// by OpenBazaar to get a fresh address for a direct payment order. It
-// associates this address with the order and assumes if a payment is received
-// by this address that it is for the order. Failure to return a never before
-// used address could put the order in a bad state.
-//
-// Wallets that only use a single address, like Ethereum, should save the
-// passed in order ID locally such as to associate payments with orders.
-func (w *MockWallet) NewAddress() (iwallet.Address, error) {
-	w.mtx.Lock()
-	defer w.mtx.Unlock()
-
-	b := make([]byte, 20)
-	rand.Read(b)
-	addr := iwallet.NewAddress(hex.EncodeToString(b), iwallet.CtTestnetMock)
-	w.addrs[addr] = false
-	return addr, nil
 }
 
 // ValidateAddress validates that the serialization of the address is correct
@@ -210,20 +132,6 @@ func (w *MockWallet) ValidateAddress(addr iwallet.Address) error {
 		return errors.New("address's cointype is not CtTestnetMock")
 	}
 	return nil
-}
-
-// HasKey returns true if the wallet can spend from the given address.
-func (w *MockWallet) HasKey(addr iwallet.Address) (bool, error) {
-	_, ok := w.addrs[addr]
-	return ok, nil
-}
-
-func (w *MockWallet) newAddress() (iwallet.Address, error) {
-	b := make([]byte, 20)
-	rand.Read(b)
-	addr := iwallet.NewAddress(hex.EncodeToString(b), iwallet.CtTestnetMock)
-	w.addrs[addr] = false
-	return addr, nil
 }
 
 // Balance should return the confirmed and unconfirmed balance for the wallet.
