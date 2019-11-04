@@ -1,6 +1,7 @@
 package base
 
 import (
+	"bytes"
 	"encoding/hex"
 	"errors"
 	iwallet "github.com/cpacia/wallet-interface"
@@ -234,4 +235,53 @@ func (m *MockChainClient) Broadcast(tx iwallet.Transaction) error {
 	}()
 
 	return nil
+}
+
+func NewMockTransaction(from *iwallet.SpendInfo, to *iwallet.Address) iwallet.Transaction {
+	txid := make([]byte, 32, 36)
+	rand.Read(txid)
+
+	tx := iwallet.Transaction{
+		ID:        iwallet.TransactionID(hex.EncodeToString(txid)),
+	}
+
+	if from != nil {
+		tx.From = append(tx.From, *from)
+	} else {
+		tx.From = append(tx.From, iwallet.SpendInfo{
+			ID:      mockOutpoint(),
+			Address: mockAddress(),
+			Amount:  mockAmount(),
+		})
+	}
+
+	var toAddress iwallet.Address
+	if to != nil {
+		toAddress = *to
+	} else {
+		toAddress = mockAddress()
+	}
+	tx.To = append(tx.To, iwallet.SpendInfo{
+		ID:      append(txid, bytes.Repeat([]byte{0x00}, 4)...),
+		Address: toAddress,
+		Amount:  tx.From[0].Amount.Sub(iwallet.NewAmount(100)),
+	})
+	return tx
+}
+
+func mockOutpoint() []byte {
+	outpoint := make([]byte, 32, 36)
+	rand.Read(outpoint)
+	return append(outpoint, bytes.Repeat([]byte{0x00}, 4)...)
+}
+
+func mockAddress() iwallet.Address {
+	address := make([]byte, 20)
+	rand.Read(address)
+	return iwallet.NewAddress(hex.EncodeToString(address), iwallet.CtTestnetMock)
+}
+
+func mockAmount() iwallet.Amount {
+	a := rand.Int31()
+	return iwallet.NewAmount(a)
 }

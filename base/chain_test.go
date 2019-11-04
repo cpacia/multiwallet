@@ -224,80 +224,13 @@ func TestChainManager_ScanAndUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	txs := []iwallet.Transaction{
-		{
-			ID: "abcd",
-			From: []iwallet.SpendInfo{
-				{
-					ID:      []byte{0x00, 0x01, 0x02},
-					Address: iwallet.NewAddress("address1", iwallet.CtTestnetMock),
-					Amount:  iwallet.NewAmount(1000),
-				},
-			},
-			To: []iwallet.SpendInfo{
-				{
-					ID:      []byte("abcd00"),
-					Address: addrs[0],
-					Amount:  iwallet.NewAmount(900),
-				},
-			},
-			Height: 0,
-		},
-		{
-			ID: "1234",
-			From: []iwallet.SpendInfo{
-				{
-					ID:      []byte("abcd00"),
-					Address: addrs[0],
-					Amount:  iwallet.NewAmount(900),
-				},
-			},
-			To: []iwallet.SpendInfo{
-				{
-					ID:      []byte("aabbcc00"),
-					Address: iwallet.NewAddress("address2", iwallet.CtTestnetMock),
-					Amount:  iwallet.NewAmount(800),
-				},
-			},
-			Height: 0,
-		},
-		{
-			ID: "5678",
-			From: []iwallet.SpendInfo{
-				{
-					ID:      []byte("ddeeff00"),
-					Address: iwallet.NewAddress("address3", iwallet.CtTestnetMock),
-					Amount:  iwallet.NewAmount(2000),
-				},
-			},
-			To: []iwallet.SpendInfo{
-				{
-					ID:      []byte("567800"),
-					Address: addrs[2],
-					Amount:  iwallet.NewAmount(1900),
-				},
-			},
-			Height: 0,
-		},
-		{
-			ID: "9999",
-			From: []iwallet.SpendInfo{
-				{
-					ID:      []byte("eeee00"),
-					Address: iwallet.NewAddress("address4", iwallet.CtTestnetMock),
-					Amount:  iwallet.NewAmount(2000),
-				},
-			},
-			To: []iwallet.SpendInfo{
-				{
-					ID:      []byte("010101"),
-					Address: iwallet.NewAddress("address5", iwallet.CtTestnetMock),
-					Amount:  iwallet.NewAmount(2000),
-				},
-			},
-			Height: 0,
-		},
-	}
+	var (
+		tx0 = NewMockTransaction(nil, &addrs[0])
+		tx1 = NewMockTransaction(&tx0.To[0], nil)
+		tx2 = NewMockTransaction(nil, &addrs[1])
+		tx3 = NewMockTransaction(nil, nil)
+		txs = []iwallet.Transaction{tx0, tx1, tx2, tx3}
+	)
 
 	for _, tx := range txs {
 		client.txIndex[tx.ID] = tx

@@ -110,6 +110,7 @@ func (cm *ChainManager) Start() {
 			return
 		}
 	}
+	cm.backoff.Reset()
 
 	if cm.eventBus != nil {
 		cm.eventBus.Emit(&ChainStartedEvent{})
@@ -203,6 +204,8 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 			previousBest := cm.best
 			cm.best = blockInfo
 			if previousBest.BlockID.String() != blockInfo.BlockID.String() {
+				// Possible reorg detected. Trigger a rescan from genesis to make
+				// sure our state is up to date.
 				go func() {
 					errChan := make(chan error)
 					cm.msgChan <- &scanJob{
@@ -216,7 +219,9 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 					}
 				}()
 			}
-			cm.eventBus.Emit(&BlockReceivedEvent{})
+			if cm.eventBus != nil {
+				cm.eventBus.Emit(&BlockReceivedEvent{})
+			}
 
 		case <-cm.done:
 			transactionSub.Close()
@@ -269,9 +274,9 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 		}
 	}
 
-	syncFrom := currentBestBlock.Height
+	scanFrom := currentBestBlock.Height
 	if !inMainChain {
-		syncFrom = 0
+		scanFrom = 0
 	}
 
 	addrs, err := cm.keyManager.GetAddresses()
@@ -289,7 +294,7 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 		return nil, nil, 0, err
 	}
 
-	return transactionChan, blocksChan, syncFrom, nil
+	return transactionChan, blocksChan, scanFrom, nil
 }
 
 // BestBlock returns the current best block for the chain.
@@ -398,7 +403,9 @@ func (cm *ChainManager) scanTransactions(addrs []iwallet.Address, fromHeight uin
 		}
 		return cm.scanTransactions(addrs, fromHeight)
 	}
-	cm.eventBus.Emit(&ScanCompleteEvent{})
+	if cm.eventBus != nil {
+		cm.eventBus.Emit(&ScanCompleteEvent{})
+	}
 	return nil
 }
 
@@ -431,7 +438,6 @@ func (cm *ChainManager) updateUnconfirmed(unconfirmed map[iwallet.TransactionID]
 				}
 				responseChan <- tx
 			}(txid)
-
 		}
 		wg.Wait()
 		close(responseChan)
@@ -492,7 +498,9 @@ func (cm *ChainManager) updateUnconfirmed(unconfirmed map[iwallet.TransactionID]
 		}
 	}
 
-	cm.eventBus.Emit(&UpdateUnconfirmedCompleteEvent{})
+	if cm.eventBus != nil {
+		cm.eventBus.Emit(&UpdateUnconfirmedCompleteEvent{})
+	}
 }
 
 // saveTransactionsAndUtxos updates both the transactions and utxos tables in the
