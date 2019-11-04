@@ -8,10 +8,15 @@ import (
 	"github.com/jinzhu/gorm"
 )
 
+// LookaheadWindow is the number of keys to generate after the last
+// unused key in the wallet. The key manager strives to maintain
+// this buffer.
 const LookaheadWindow = 20
 
+// ErrEncryptedKeychain means the keychain is encrypted.
 var ErrEncryptedKeychain = errors.New("keychain is encrypted")
 
+// KeyManager manages a Bip44 keychain for each coin.
 type KeyManager struct {
 	db              database.Database
 	internalPrivkey *hd.ExtendedKey
@@ -207,6 +212,22 @@ func (km *KeyManager) KeyForAddress(addr iwallet.Address, accountPrivKey *hd.Ext
 		key, err = externalPrivkey.Child(uint32(record.KeyIndex))
 	}
 	return key, err
+}
+
+// MarkAddressAsUsed marks the given address as used and extends the keychain.
+func (km *KeyManager) MarkAddressAsUsed(dbtx database.Tx, addr iwallet.Address) error {
+	var record database.AddressRecord
+	err := dbtx.Read().Where("coin=?", km.coin.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
+	if err != nil {
+		return err
+	}
+	record.Used = true
+
+	if err := dbtx.Save(&record); err != nil {
+		return err
+	}
+
+	return km.extendKeychain(dbtx)
 }
 
 // ExtendKeychain generates a buffer of 20 unused keys after the last used

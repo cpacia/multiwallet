@@ -537,7 +537,23 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 		// database, just update the height and timestamp if necessary. If it doesn't already
 		// exist then save it.
 		for _, tx := range newTxs {
-			relevant := isRelevantTransaction(&tx, addrMap)
+			var relevant bool
+			for _, from := range tx.From {
+				if addrMap[from.Address] {
+					relevant = true
+					break
+				}
+			}
+			for _, to := range tx.To {
+				if addrMap[to.Address] {
+					relevant = true
+					if err := cm.keyManager.MarkAddressAsUsed(dbtx, to.Address); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+
 			savedTx, ok := txMap[tx.ID]
 			if ok && savedTx.Height() != tx.Height {
 				savedTx.BlockHeight = tx.Height
@@ -666,18 +682,4 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 	}
 
 	return numNew, err
-}
-
-func isRelevantTransaction(tx *iwallet.Transaction, addrs map[iwallet.Address]bool) bool {
-	for _, from := range tx.From {
-		if addrs[from.Address] {
-			return true
-		}
-	}
-	for _, to := range tx.To {
-		if addrs[to.Address] {
-			return true
-		}
-	}
-	return false
 }

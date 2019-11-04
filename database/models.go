@@ -36,7 +36,7 @@ func (c *CoinRecord) BlockchainInfo() iwallet.BlockInfo {
 }
 
 type AddressRecord struct {
-	Addr     string `gorm:"unique;not null"`
+	Addr     string `gorm:"primary_key"`
 	KeyIndex int
 	Change   bool
 	Used     bool
