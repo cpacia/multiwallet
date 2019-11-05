@@ -13,11 +13,6 @@ import (
 	"time"
 )
 
-const (
-	defaultKdfRounds = 4096
-	defaultKeyLength = 32
-)
-
 // DBTx satisfies the iwallet.Tx interface.
 type DBTx struct {
 	isClosed bool
