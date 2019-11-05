@@ -339,28 +339,28 @@ func (km *KeyManager) getLookaheadWindows(dbtx database.Tx) (internalUnused, ext
 	return
 }
 
-func generateAccountPrivKeys(masterPrivKey *hd.ExtendedKey) (external, internal *hd.ExtendedKey, err error) {
+func generateAccountPrivKeys(accountPrivKey *hd.ExtendedKey) (external, internal *hd.ExtendedKey, err error) {
 	// Change(0) = external
-	external, err = masterPrivKey.Child(0)
+	external, err = accountPrivKey.Child(0)
 	if err != nil {
 		return nil, nil, err
 	}
 	// Change(1) = internal
-	internal, err = masterPrivKey.Child(1)
+	internal, err = accountPrivKey.Child(1)
 	if err != nil {
 		return nil, nil, err
 	}
 	return
 }
 
-func generateAccountPubKeys(masterPubKey *hd.ExtendedKey) (external, internal *hd.ExtendedKey, err error) {
+func generateAccountPubKeys(accountPubKey *hd.ExtendedKey) (external, internal *hd.ExtendedKey, err error) {
 	// Change(0) = external
-	external, err = masterPubKey.Child(0)
+	external, err = accountPubKey.Child(0)
 	if err != nil {
 		return nil, nil, err
 	}
 	// Change(1) = internal
-	internal, err = masterPubKey.Child(1)
+	internal, err = accountPubKey.Child(1)
 	if err != nil {
 		return nil, nil, err
 	}

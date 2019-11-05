@@ -47,6 +47,11 @@ func (ar *AddressRecord) Address() iwallet.Address {
 	return iwallet.NewAddress(ar.Addr, iwallet.CoinType(ar.Coin))
 }
 
+type WatchedAddressRecord struct {
+	Addr string `gorm:"primary_key"`
+	Coin string
+}
+
 type TransactionRecord struct {
 	Txid                   string `gorm:"primary_key;unique;not null"`
 	SerlializedTransaction []byte

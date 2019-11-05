@@ -72,14 +72,14 @@ func newTestChain() (*ChainManager, *MockChainClient, error) {
 	client := NewMockChainClient()
 
 	config := &ChainConfig{
-		Client:           client,
-		DB:               db,
-		KeyManager:       keyManager,
-		CoinType:         iwallet.CtTestnetMock,
-		Logger:           log,
-		WatchOnlyAddress: nil,
-		TransactionChan:  nil,
-		EventBus:         NewBus(),
+		Client:             client,
+		DB:                 db,
+		KeyManager:         keyManager,
+		CoinType:           iwallet.CtTestnetMock,
+		Logger:             log,
+		WatchOnlyAddress:   nil,
+		TxSubscriptionChan: nil,
+		EventBus:           NewBus(),
 	}
 
 	return NewChainManager(config), client, nil

@@ -14,32 +14,32 @@ import (
 
 // ChainConfig holds all the information need to instantiate a new ChainManager
 type ChainConfig struct {
-	Client           ChainClient
-	DB               database.Database
-	KeyManager       *KeyManager
-	CoinType         iwallet.CoinType
-	Logger           *logging.Logger
-	WatchOnlyAddress []iwallet.Address
-	EventBus         Bus
-	TransactionChan  chan<- iwallet.Transaction
+	Client             ChainClient
+	DB                 database.Database
+	KeyManager         *KeyManager
+	CoinType           iwallet.CoinType
+	Logger             *logging.Logger
+	WatchOnlyAddress   []iwallet.Address
+	EventBus           Bus
+	TxSubscriptionChan chan iwallet.Transaction
 }
 
 // ChainManager manages the downloading of transactions for the wallet.
 // It updates transaction confirmations and keeps track of utxos.
 type ChainManager struct {
-	client          ChainClient
-	best            iwallet.BlockInfo
-	coinType        iwallet.CoinType
-	keyManager      *KeyManager
-	db              database.Database
-	logger          *logging.Logger
-	backoff         *expbackoff.ExponentialBackOff
-	unconfirmedTxs  map[iwallet.TransactionID]iwallet.Transaction
-	watchOnly       []iwallet.Address
-	transactionChan chan<- iwallet.Transaction
-	eventBus        Bus
-	msgChan         chan interface{}
-	done            chan struct{}
+	client           ChainClient
+	best             iwallet.BlockInfo
+	coinType         iwallet.CoinType
+	keyManager       *KeyManager
+	db               database.Database
+	logger           *logging.Logger
+	backoff          *expbackoff.ExponentialBackOff
+	unconfirmedTxs   map[iwallet.TransactionID]iwallet.Transaction
+	watchOnly        []iwallet.Address
+	subscriptionChan chan iwallet.Transaction
+	eventBus         Bus
+	msgChan          chan interface{}
+	done             chan struct{}
 }
 
 // NewChainManager builds a new ChainManager from the ChainConfig.
@@ -49,15 +49,15 @@ func NewChainManager(config *ChainConfig) *ChainManager {
 	backoff.InitialInterval = time.Second
 
 	return &ChainManager{
-		client:          config.Client,
-		keyManager:      config.KeyManager,
-		coinType:        config.CoinType,
-		logger:          config.Logger,
-		db:              config.DB,
-		watchOnly:       config.WatchOnlyAddress,
-		unconfirmedTxs:  make(map[iwallet.TransactionID]iwallet.Transaction),
-		transactionChan: config.TransactionChan,
-		eventBus:        config.EventBus,
+		client:           config.Client,
+		keyManager:       config.KeyManager,
+		coinType:         config.CoinType,
+		logger:           config.Logger,
+		db:               config.DB,
+		watchOnly:        config.WatchOnlyAddress,
+		unconfirmedTxs:   make(map[iwallet.TransactionID]iwallet.Transaction),
+		subscriptionChan: config.TxSubscriptionChan,
+		eventBus:         config.EventBus,
 
 		backoff: backoff,
 		msgChan: make(chan interface{}),
@@ -492,9 +492,9 @@ func (cm *ChainManager) updateUnconfirmed(unconfirmed map[iwallet.TransactionID]
 	})
 
 	// Send updated transactions out to the subscriber.
-	if cm.transactionChan != nil {
+	if cm.subscriptionChan != nil {
 		for _, tx := range updated {
-			cm.transactionChan <- tx
+			cm.subscriptionChan <- tx
 		}
 	}
 
@@ -671,9 +671,9 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 	})
 
 	// Send any new or updated transactions out to the subscriber.
-	if cm.transactionChan != nil {
+	if cm.subscriptionChan != nil {
 		for _, tx := range newOrUpdated {
-			cm.transactionChan <- tx
+			cm.subscriptionChan <- tx
 		}
 	}
 

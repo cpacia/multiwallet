@@ -14,112 +14,11 @@ import (
 type BitcoinCashWallet struct {
 	base.WalletBase
 
-	done chan struct{}
 }
 
 func NewBitcoinCashWallet() *BitcoinCashWallet {
-	w := &BitcoinCashWallet{
-		done: make(chan struct{}),
-	}
-
+	w := &BitcoinCashWallet{}
 	return w
-}
-
-// Start is called when the openbazaar-go daemon starts up. At this point in time
-// the wallet implementation should start syncing and/or updating balances, but
-// not before.
-func (w *MockWallet) Start() {
-	go func() {
-		for {
-			select {
-			case tx := <-w.incoming:
-				w.mtx.Lock()
-				txidBytes, err := hex.DecodeString(string(tx.ID))
-				if err != nil {
-					w.mtx.Unlock()
-					return
-				}
-				var (
-					relevant bool
-					watched  bool
-				)
-				for i, out := range tx.To {
-					if _, ok := w.addrs[out.Address]; ok {
-						idx := make([]byte, 4)
-						binary.BigEndian.PutUint32(idx, uint32(i))
-						op := append(txidBytes, idx...)
-						outpoint := hex.EncodeToString(op)
-						if _, ok := w.utxos[outpoint]; !ok {
-							w.utxos[outpoint] = mockUtxo{
-								outpoint: op,
-								address:  out.Address,
-								value:    out.Amount,
-							}
-						}
-						tx.To[i].IsRelevant = true
-						w.addrs[out.Address] = true
-						relevant = true
-					}
-					if _, ok := w.watchedAddrs[out.Address]; ok {
-						watched = true
-						tx.To[i].IsWatched = true
-					}
-				}
-				for i, in := range tx.From {
-					if _, ok := w.addrs[in.Address]; ok {
-						if _, ok := w.utxos[hex.EncodeToString(in.ID)]; ok {
-							delete(w.utxos, hex.EncodeToString(in.ID))
-						}
-						relevant = true
-						tx.From[i].IsRelevant = true
-					}
-					if _, ok := w.watchedAddrs[in.Address]; ok {
-						watched = true
-						tx.From[i].IsWatched = true
-					}
-				}
-				if relevant || watched {
-					w.transactions[tx.ID] = tx
-					if w.bus != nil {
-						w.bus.Emit(&events.TransactionReceived{Transaction: tx})
-					}
-					for _, sub := range w.txSubs {
-						sub <- tx
-					}
-				}
-				w.mtx.Unlock()
-			case blockInfo := <-w.block:
-				w.mtx.Lock()
-				w.blockchainInfo = blockInfo
-				for txid, txn := range w.transactions {
-					if txn.Height == 0 {
-						txn.Height = blockInfo.Height
-						w.transactions[txid] = txn
-					}
-				}
-				for op, utxo := range w.utxos {
-					if utxo.height == 0 {
-						utxo.height = blockInfo.Height
-						w.utxos[op] = utxo
-					}
-				}
-				if w.bus != nil {
-					w.bus.Emit(&events.BlockReceived{CurrencyCode: "TMCK", BlockchainInfo: blockInfo})
-				}
-				w.mtx.Unlock()
-			case <-w.done:
-				return
-			}
-		}
-	}()
-}
-
-// BlockchainInfo returns the best hash and height of the chain.
-func (w *MockWallet) BlockchainInfo() (iwallet.BlockchainInfo, error) {
-	w.mtx.RLock()
-	defer w.mtx.RUnlock()
-
-	return w.blockchainInfo, nil
 }
 
 // ValidateAddress validates that the serialization of the address is correct
@@ -134,24 +33,6 @@ func (w *MockWallet) ValidateAddress(addr iwallet.Address) error {
 	return nil
 }
 
-// Balance should return the confirmed and unconfirmed balance for the wallet.
-func (w *MockWallet) Balance() (iwallet.Amount, iwallet.Amount, error) {
-	w.mtx.RLock()
-	defer w.mtx.RUnlock()
-
-	// TODO: this is the lazy way of calculating this. It should probably
-	// recursively check if unconfirmed utxos are spends of confirmed parents.
-	confirmed, unconfirmed := iwallet.NewAmount(0), iwallet.NewAmount(0)
-	for _, utxo := range w.utxos {
-		if utxo.height > 0 {
-			confirmed = confirmed.Add(utxo.value)
-		} else {
-			unconfirmed = unconfirmed.Add(utxo.value)
-		}
-	}
-	return confirmed, unconfirmed, nil
-}
-
 // IsDust returns whether the amount passed in is considered dust by network. This
 // method is called when building payout transactions from the multisig to the various
 // participants. If the amount that is supposed to be sent to a given party is below
@@ -159,30 +40,6 @@ func (w *MockWallet) Balance() (iwallet.Amount, iwallet.Amount, error) {
 // that never confirms.
 func (w *MockWallet) IsDust(amount iwallet.Amount) bool {
 	return amount.Cmp(iwallet.NewAmount(500)) < 0
-}
-
-// Transactions returns a slice of this wallet's transactions.
-func (w *MockWallet) Transactions() ([]iwallet.Transaction, error) {
-	w.mtx.RLock()
-	defer w.mtx.RUnlock()
-
-	txs := make([]iwallet.Transaction, 0, len(w.transactions))
-	for _, tx := range w.transactions {
-		txs = append(txs, tx)
-	}
-	return txs, nil
-}
-
-// GetTransaction returns a transaction given it's ID.
-func (w *MockWallet) GetTransaction(id iwallet.TransactionID) (iwallet.Transaction, error) {
-	w.mtx.RLock()
-	defer w.mtx.RUnlock()
-
-	tx, ok := w.transactions[id]
-	if !ok {
-		return tx, errors.New("not found")
-	}
-	return tx, nil
 }
 
 // EstimateSpendFee should return the anticipated fee to transfer a given amount of coins
@@ -387,41 +244,6 @@ func (w *MockWallet) SweepWallet(tx iwallet.Tx, to iwallet.Address, feeLevel iwa
 	}
 
 	return txn.ID, nil
-}
-
-// SubscribeTransactions returns a chan over which the wallet is expected
-// to push both transactions relevant for this wallet as well as transactions
-// sending to or spending from a watched address.
-func (w *MockWallet) SubscribeTransactions() <-chan iwallet.Transaction {
-	ch := make(chan iwallet.Transaction)
-	w.txSubs = append(w.txSubs, ch)
-	return ch
-}
-
-// SubscribeBlocks returns a chan over which the wallet is expected
-// to push info about new blocks when they arrive.
-func (w *MockWallet) SubscribeBlocks() <-chan iwallet.BlockchainInfo {
-	ch := make(chan iwallet.BlockchainInfo)
-	w.blockSubs = append(w.blockSubs, ch)
-	return ch
-}
-
-// WatchAddress is used by the escrow system to tell the wallet to listen
-// on the escrow address. It's expected that payments into and spends from
-// this address will be pushed back to OpenBazaar.
-//
-// Note a database transaction is used here. Same rules of Commit() and
-// Rollback() apply.
-func (w *MockWallet) WatchAddress(tx iwallet.Tx, addr iwallet.Address) error {
-	dbtx := tx.(*dbTx)
-	dbtx.onCommit = func() error {
-		w.mtx.Lock()
-		defer w.mtx.Unlock()
-
-		w.watchedAddrs[addr] = struct{}{}
-		return nil
-	}
-	return nil
 }
 
 // EstimateEscrowFee estimates the fee to release the funds from escrow.
