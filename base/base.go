@@ -7,6 +7,7 @@ import (
 	"github.com/cpacia/multiwallet/database"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/jinzhu/gorm"
+	"github.com/op/go-logging"
 	"os"
 	"path"
 	"strings"
@@ -56,6 +57,7 @@ type WalletBase struct {
 	Keychain     *Keychain
 	DB           database.Database
 	CoinType     iwallet.CoinType
+	Logger       *logging.Logger
 	DataDir      string
 	AddressFunc  func(key *hd.ExtendedKey) (iwallet.Address, error)
 
@@ -130,6 +132,20 @@ func (w *WalletBase) OpenWallet() error {
 	}
 	w.Keychain = keychain
 
+	subscriptionChan := make(chan iwallet.Transaction)
+
+	config := &ChainConfig{
+		Client:             w.ChainClient,
+		DB:                 w.DB,
+		Keychain:           keychain,
+		CoinType:           w.CoinType,
+		Logger:             w.Logger,
+		TxSubscriptionChan: subscriptionChan,
+	}
+
+	w.ChainManager = NewChainManager(config)
+	go w.ChainManager.Start()
+
 	blockSub, err := w.ChainClient.SubscribeBlocks()
 	if err != nil {
 		return err
@@ -154,7 +170,7 @@ func (w *WalletBase) OpenWallet() error {
 				for _, sub := range blockSubs {
 					sub <- blockInfo
 				}
-			case tx := <-w.ChainManager.subscriptionChan:
+			case tx := <-subscriptionChan:
 				for _, sub := range txSubs {
 					sub <- tx
 				}
@@ -168,6 +184,9 @@ func (w *WalletBase) OpenWallet() error {
 
 // CloseWallet will be called when OpenBazaar shuts down.
 func (w *WalletBase) CloseWallet() error {
+	if err := w.ChainManager.Stop(); err != nil {
+		return err
+	}
 	close(w.done)
 	return nil
 }
