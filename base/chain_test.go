@@ -48,7 +48,7 @@ func newTestChain() (*ChainManager, *MockChainClient, error) {
 		return nil, nil, err
 	}
 
-	keyManager, err := NewKeyManager(db, iwallet.CtTestnetMock, func(key *hd.ExtendedKey) (iwallet.Address, error) {
+	keychain, err := NewKeychain(db, iwallet.CtTestnetMock, func(key *hd.ExtendedKey) (iwallet.Address, error) {
 		h := sha256.Sum256([]byte(key.String()))
 		return iwallet.NewAddress(hex.EncodeToString(h[:]), iwallet.CtTestnetMock), nil
 	})
@@ -63,7 +63,7 @@ func newTestChain() (*ChainManager, *MockChainClient, error) {
 	config := &ChainConfig{
 		Client:             client,
 		DB:                 db,
-		KeyManager:         keyManager,
+		Keychain:           keychain,
 		CoinType:           iwallet.CtTestnetMock,
 		Logger:             log,
 		TxSubscriptionChan: nil,
@@ -190,7 +190,7 @@ func TestChainManager_ScanAndUpdate(t *testing.T) {
 	}
 	defer chain.db.Close()
 
-	addrs, err := chain.keyManager.GetAddresses()
+	addrs, err := chain.keychain.GetAddresses()
 	if err != nil {
 		t.Fatal(err)
 	}

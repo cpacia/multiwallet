@@ -34,8 +34,8 @@ const (
 // ErrEncryptedKeychain means the keychain is encrypted.
 var ErrEncryptedKeychain = errors.New("keychain is encrypted")
 
-// KeyManager manages a Bip44 keychain for each coin.
-type KeyManager struct {
+// Keychain manages a Bip44 keychain for each coin.
+type Keychain struct {
 	db              database.Database
 	internalPrivkey *hd.ExtendedKey
 	internalPubkey  *hd.ExtendedKey
@@ -48,9 +48,9 @@ type KeyManager struct {
 	addrFunc func(key *hd.ExtendedKey) (iwallet.Address, error)
 }
 
-// NewKeyManager instantiates a new KeyManger for the given coin with the provided keys.
+// NewKeychain instantiates a new Keychain for the given coin with the provided keys.
 //
-// Note the following derivation path used by the KeyManager:
+// Note the following derivation path used by the Keychain:
 // Typical Bip44 derivation is:
 //
 // m / purpose' / coin_type' / account' / change / address_index
@@ -59,7 +59,7 @@ type KeyManager struct {
 // deriving keys for other coins. Further, we only generate addresses using the master
 // public key keys so we do not need the master private key to generate new addresses.
 // This allows us to encrypt the master private key if the user desires.
-func NewKeyManager(db database.Database, coinType iwallet.CoinType, addressFunc func(key *hd.ExtendedKey) (iwallet.Address, error)) (*KeyManager, error) {
+func NewKeychain(db database.Database, coinType iwallet.CoinType, addressFunc func(key *hd.ExtendedKey) (iwallet.Address, error)) (*Keychain, error) {
 	var (
 		externalPrivkey, externalPubkey, internalPrivkey, internalPubkey *hd.ExtendedKey
 		coinRecord                                                       database.CoinRecord
@@ -96,7 +96,7 @@ func NewKeyManager(db database.Database, coinType iwallet.CoinType, addressFunc 
 		}
 	}
 
-	km := &KeyManager{
+	kc := &Keychain{
 		db:              db,
 		internalPrivkey: internalPrivkey,
 		internalPubkey:  internalPubkey,
@@ -105,15 +105,15 @@ func NewKeyManager(db database.Database, coinType iwallet.CoinType, addressFunc 
 		coinType:        coinType,
 		addrFunc:        addressFunc,
 	}
-	if err := km.ExtendKeychain(); err != nil {
+	if err := kc.ExtendKeychain(); err != nil {
 		return nil, err
 	}
-	return km, nil
+	return kc, nil
 }
 
 // SetPassphase encrypts the master private key in the database and
 // deletes the internal and external private keys from memory.
-func (km *KeyManager) SetPassphase(pw []byte) error {
+func (kc *Keychain) SetPassphase(pw []byte) error {
 	var (
 		salt       = make([]byte, 32)
 		rounds     = defaultKdfRounds
@@ -121,8 +121,8 @@ func (km *KeyManager) SetPassphase(pw []byte) error {
 		coinRecord database.CoinRecord
 	)
 
-	return km.db.Update(func(tx database.Tx) error {
-		err := tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Find(&coinRecord).Error
+	return kc.db.Update(func(tx database.Tx) error {
+		err := tx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Find(&coinRecord).Error
 		if err != nil {
 			return err
 		}
@@ -161,8 +161,8 @@ func (km *KeyManager) SetPassphase(pw []byte) error {
 		coinRecord.KdfKeyLen = keyLen
 		coinRecord.Salt = salt
 
-		km.externalPrivkey = nil
-		km.internalPrivkey = nil
+		kc.externalPrivkey = nil
+		kc.internalPrivkey = nil
 
 		return tx.Save(&coinRecord)
 	})
@@ -170,8 +170,8 @@ func (km *KeyManager) SetPassphase(pw []byte) error {
 
 // ChangePassphrase will change the passphrase used to encrypt the
 // master private key.
-func (km *KeyManager) ChangePassphrase(old, new []byte) error {
-	if !km.IsEncrypted() {
+func (kc *Keychain) ChangePassphrase(old, new []byte) error {
+	if !kc.IsEncrypted() {
 		return errors.New("wallet is not encrypted")
 	}
 
@@ -182,8 +182,8 @@ func (km *KeyManager) ChangePassphrase(old, new []byte) error {
 		coinRecord database.CoinRecord
 	)
 
-	return km.db.Update(func(tx database.Tx) error {
-		err := tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Find(&coinRecord).Error
+	return kc.db.Update(func(tx database.Tx) error {
+		err := tx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Find(&coinRecord).Error
 		if err != nil {
 			return err
 		}
@@ -255,14 +255,14 @@ func (km *KeyManager) ChangePassphrase(old, new []byte) error {
 
 // RemovePassphrase removes encryption from the master key and puts the
 // external and internal keys back in memory.
-func (km *KeyManager) RemovePassphrase(pw []byte) error {
-	if !km.IsEncrypted() {
+func (kc *Keychain) RemovePassphrase(pw []byte) error {
+	if !kc.IsEncrypted() {
 		return errors.New("wallet is not encrypted")
 	}
 
-	return km.db.Update(func(tx database.Tx) error {
+	return kc.db.Update(func(tx database.Tx) error {
 		var coinRecord database.CoinRecord
-		err := tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Find(&coinRecord).Error
+		err := tx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Find(&coinRecord).Error
 		if err != nil {
 			return err
 		}
@@ -297,7 +297,7 @@ func (km *KeyManager) RemovePassphrase(pw []byte) error {
 			return errors.New("invalid passphrase")
 		}
 
-		km.externalPrivkey, km.internalPrivkey, err = generateAccountPrivKeys(key)
+		kc.externalPrivkey, kc.internalPrivkey, err = generateAccountPrivKeys(key)
 		if err != nil {
 			return err
 		}
@@ -311,14 +311,14 @@ func (km *KeyManager) RemovePassphrase(pw []byte) error {
 
 // Unlock will dcrypt the master key and store the external and internal
 // private keys in memory for howLong.
-func (km *KeyManager) Unlock(pw []byte, howLong time.Duration) error {
-	if !km.IsEncrypted() {
+func (kc *Keychain) Unlock(pw []byte, howLong time.Duration) error {
+	if !kc.IsEncrypted() {
 		return errors.New("wallet is not encrypted")
 	}
 
 	var coinRecord database.CoinRecord
-	err := km.db.View(func(tx database.Tx) error {
-		return tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Find(&coinRecord).Error
+	err := kc.db.View(func(tx database.Tx) error {
+		return tx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Find(&coinRecord).Error
 	})
 	if err != nil {
 		return err
@@ -354,28 +354,28 @@ func (km *KeyManager) Unlock(pw []byte, howLong time.Duration) error {
 		return err
 	}
 
-	km.externalPrivkey, km.internalPrivkey, err = generateAccountPrivKeys(key)
+	kc.externalPrivkey, kc.internalPrivkey, err = generateAccountPrivKeys(key)
 	if err != nil {
 		return err
 	}
 
 	time.AfterFunc(howLong, func() {
-		km.externalPrivkey = nil
-		km.internalPrivkey = nil
+		kc.externalPrivkey = nil
+		kc.internalPrivkey = nil
 	})
 	return nil
 }
 
 // IsEncrypted returns whether or not this keychain is encrypted.
-func (km *KeyManager) IsEncrypted() bool {
-	return km.internalPrivkey == nil || km.externalPrivkey == nil
+func (kc *Keychain) IsEncrypted() bool {
+	return kc.internalPrivkey == nil || kc.externalPrivkey == nil
 }
 
 // GetAddresses returns all addresses in the wallet.
-func (km *KeyManager) GetAddresses() ([]iwallet.Address, error) {
+func (kc *Keychain) GetAddresses() ([]iwallet.Address, error) {
 	var records []database.AddressRecord
-	err := km.db.Update(func(tx database.Tx) error {
-		return tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Find(&records).Error
+	err := kc.db.Update(func(tx database.Tx) error {
+		return tx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Find(&records).Error
 	})
 	if err != nil && !gorm.IsRecordNotFoundError(err) {
 		return nil, err
@@ -388,10 +388,10 @@ func (km *KeyManager) GetAddresses() ([]iwallet.Address, error) {
 }
 
 // CurrentAddress returns the first unused address.
-func (km *KeyManager) CurrentAddress(change bool) (iwallet.Address, error) {
+func (kc *Keychain) CurrentAddress(change bool) (iwallet.Address, error) {
 	var record database.AddressRecord
-	err := km.db.View(func(tx database.Tx) error {
-		return tx.Read().Order("key_index asc").Where("coin=?", km.coinType.CurrencyCode()).Where("used=?", false).Where("change=?", change).First(&record).Error
+	err := kc.db.View(func(tx database.Tx) error {
+		return tx.Read().Order("key_index asc").Where("coin=?", kc.coinType.CurrencyCode()).Where("used=?", false).Where("change=?", change).First(&record).Error
 	})
 	if err != nil {
 		return iwallet.Address{}, err
@@ -400,11 +400,11 @@ func (km *KeyManager) CurrentAddress(change bool) (iwallet.Address, error) {
 }
 
 // NewAddress returns a new, never before used address.
-func (km *KeyManager) NewAddress(change bool) (iwallet.Address, error) {
+func (kc *Keychain) NewAddress(change bool) (iwallet.Address, error) {
 	var address iwallet.Address
-	err := km.db.Update(func(tx database.Tx) error {
+	err := kc.db.Update(func(tx database.Tx) error {
 		var record database.AddressRecord
-		err := tx.Read().Order("key_index desc").Where("coin=?", km.coinType.CurrencyCode()).Where("change=?", change).First(&record).Error
+		err := tx.Read().Order("key_index desc").Where("coin=?", kc.coinType.CurrencyCode()).Where("change=?", change).First(&record).Error
 		if err != nil {
 			return err
 		}
@@ -414,14 +414,14 @@ func (km *KeyManager) NewAddress(change bool) (iwallet.Address, error) {
 		)
 
 		for {
-			newKey, err = km.externalPubkey.Child(uint32(index))
+			newKey, err = kc.externalPubkey.Child(uint32(index))
 			if err == nil {
 				break
 			}
 			index++
 		}
 
-		address, err = km.addrFunc(newKey)
+		address, err = kc.addrFunc(newKey)
 		if err != nil {
 			return err
 		}
@@ -431,9 +431,9 @@ func (km *KeyManager) NewAddress(change bool) (iwallet.Address, error) {
 			KeyIndex: index,
 			Change:   false,
 			Used:     false,
-			Coin:     km.coinType.CurrencyCode(),
+			Coin:     kc.coinType.CurrencyCode(),
 		}
-		if err := km.extendKeychain(tx); err != nil {
+		if err := kc.extendKeychain(tx); err != nil {
 			return err
 		}
 		return tx.Save(&newRecord)
@@ -443,11 +443,11 @@ func (km *KeyManager) NewAddress(change bool) (iwallet.Address, error) {
 
 // HasKey returns whether or not this wallet can derive the key for
 // this address.
-func (km *KeyManager) HasKey(addr iwallet.Address) (bool, error) {
+func (kc *Keychain) HasKey(addr iwallet.Address) (bool, error) {
 	has := false
-	err := km.db.View(func(tx database.Tx) error {
+	err := kc.db.View(func(tx database.Tx) error {
 		var record database.AddressRecord
-		err := tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
+		err := tx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
 		if err != nil && !gorm.IsRecordNotFoundError(err) {
 			return err
 		} else if err == nil {
@@ -462,18 +462,18 @@ func (km *KeyManager) HasKey(addr iwallet.Address) (bool, error) {
 // encrypted then accountPrivKey may be nil and it will generate and return the key.
 // However, if the wallet is encrypted a unencrypted accountPrivKey must be passed in
 // so we can derive the correct child key.
-func (km *KeyManager) KeyForAddress(addr iwallet.Address, accountPrivKey *hd.ExtendedKey) (*hd.ExtendedKey, error) {
+func (kc *Keychain) KeyForAddress(addr iwallet.Address, accountPrivKey *hd.ExtendedKey) (*hd.ExtendedKey, error) {
 	var record database.AddressRecord
-	err := km.db.View(func(tx database.Tx) error {
-		return tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
+	err := kc.db.View(func(tx database.Tx) error {
+		return tx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
 	})
 	if err != nil {
 		return nil, err
 	}
 	var (
 		key             *hd.ExtendedKey
-		externalPrivkey = km.externalPrivkey
-		internalPrivkey = km.internalPrivkey
+		externalPrivkey = kc.externalPrivkey
+		internalPrivkey = kc.internalPrivkey
 	)
 
 	if (externalPrivkey == nil || internalPrivkey == nil) && accountPrivKey != nil {
@@ -498,9 +498,9 @@ func (km *KeyManager) KeyForAddress(addr iwallet.Address, accountPrivKey *hd.Ext
 }
 
 // MarkAddressAsUsed marks the given address as used and extends the keychain.
-func (km *KeyManager) MarkAddressAsUsed(dbtx database.Tx, addr iwallet.Address) error {
+func (kc *Keychain) MarkAddressAsUsed(dbtx database.Tx, addr iwallet.Address) error {
 	var record database.AddressRecord
-	err := dbtx.Read().Where("coin=?", km.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
+	err := dbtx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
 	if err != nil {
 		return err
 	}
@@ -510,7 +510,7 @@ func (km *KeyManager) MarkAddressAsUsed(dbtx database.Tx, addr iwallet.Address) 
 		return err
 	}
 
-	return km.extendKeychain(dbtx)
+	return kc.extendKeychain(dbtx)
 }
 
 // ExtendKeychain generates a buffer of 20 unused keys after the last used
@@ -523,33 +523,33 @@ func (km *KeyManager) MarkAddressAsUsed(dbtx database.Tx, addr iwallet.Address) 
 // 2. Query for transactions
 // 3. If there are any transactions returned repeat steps 1 - 3 until
 // there are no more transactions returned.
-func (km *KeyManager) ExtendKeychain() error {
-	return km.db.Update(func(tx database.Tx) error {
-		return km.extendKeychain(tx)
+func (kc *Keychain) ExtendKeychain() error {
+	return kc.db.Update(func(tx database.Tx) error {
+		return kc.extendKeychain(tx)
 	})
 }
 
-func (km *KeyManager) extendKeychain(tx database.Tx) error {
-	internalUnused, externalUnused, err := km.getLookaheadWindows(tx)
+func (kc *Keychain) extendKeychain(tx database.Tx) error {
+	internalUnused, externalUnused, err := kc.getLookaheadWindows(tx)
 	if err != nil {
 		return err
 	}
 	if internalUnused < lookaheadWindow {
-		if err := km.createNewKeys(tx, true, lookaheadWindow-internalUnused); err != nil {
+		if err := kc.createNewKeys(tx, true, lookaheadWindow-internalUnused); err != nil {
 			return err
 		}
 	}
 	if externalUnused < lookaheadWindow {
-		if err := km.createNewKeys(tx, false, lookaheadWindow-externalUnused); err != nil {
+		if err := kc.createNewKeys(tx, false, lookaheadWindow-externalUnused); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (km *KeyManager) createNewKeys(dbtx database.Tx, change bool, numKeys int) error {
+func (kc *Keychain) createNewKeys(dbtx database.Tx, change bool, numKeys int) error {
 	var record database.AddressRecord
-	err := dbtx.Read().Order("key_index desc").Where("coin=?", km.coinType.CurrencyCode()).Where("used=?", true).Where("change=?", change).First(&record).Error
+	err := dbtx.Read().Order("key_index desc").Where("coin=?", kc.coinType.CurrencyCode()).Where("used=?", true).Where("change=?", change).First(&record).Error
 	if err != nil && !gorm.IsRecordNotFoundError(err) {
 		return err
 	}
@@ -563,16 +563,16 @@ func (km *KeyManager) createNewKeys(dbtx database.Tx, change bool, numKeys int) 
 		// is derived.
 		var newKey *hd.ExtendedKey
 		if change {
-			newKey, err = km.internalPubkey.Child(uint32(nextIndex))
+			newKey, err = kc.internalPubkey.Child(uint32(nextIndex))
 		} else {
-			newKey, err = km.externalPubkey.Child(uint32(nextIndex))
+			newKey, err = kc.externalPubkey.Child(uint32(nextIndex))
 		}
 		if err != nil {
 			nextIndex++
 			continue
 		}
 
-		addr, err := km.addrFunc(newKey)
+		addr, err := kc.addrFunc(newKey)
 		if err != nil {
 			return err
 		}
@@ -582,7 +582,7 @@ func (km *KeyManager) createNewKeys(dbtx database.Tx, change bool, numKeys int) 
 			KeyIndex: nextIndex,
 			Change:   change,
 			Used:     false,
-			Coin:     km.coinType.CurrencyCode(),
+			Coin:     kc.coinType.CurrencyCode(),
 		}
 
 		if err := dbtx.Save(&newRecord); err != nil {
@@ -594,9 +594,9 @@ func (km *KeyManager) createNewKeys(dbtx database.Tx, change bool, numKeys int) 
 	return nil
 }
 
-func (km *KeyManager) getLookaheadWindows(dbtx database.Tx) (internalUnused, externalUnused int, err error) {
+func (kc *Keychain) getLookaheadWindows(dbtx database.Tx) (internalUnused, externalUnused int, err error) {
 	var addressRecords []database.AddressRecord
-	rerr := dbtx.Read().Where("coin=?", km.coinType.CurrencyCode()).Find(&addressRecords).Error
+	rerr := dbtx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Find(&addressRecords).Error
 	if rerr != nil && !gorm.IsRecordNotFoundError(rerr) {
 		err = rerr
 		return

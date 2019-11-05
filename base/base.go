@@ -53,7 +53,7 @@ type subscription struct {
 type WalletBase struct {
 	ChainManager *ChainManager
 	ChainClient  ChainClient
-	KeyManager   *KeyManager
+	Keychain     *Keychain
 	DB           database.Database
 	CoinType     iwallet.CoinType
 	DataDir      string
@@ -124,11 +124,11 @@ func (w *WalletBase) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time
 // Open wallet will be called each time on OpenBazaar start. It
 // will also be called after CreateWallet().
 func (w *WalletBase) OpenWallet() error {
-	keyManager, err := NewKeyManager(w.DB, w.CoinType, w.AddressFunc)
+	keychain, err := NewKeychain(w.DB, w.CoinType, w.AddressFunc)
 	if err != nil {
 		return err
 	}
-	w.KeyManager = keyManager
+	w.Keychain = keychain
 
 	blockSub, err := w.ChainClient.SubscribeBlocks()
 	if err != nil {
@@ -183,7 +183,7 @@ func (w *WalletBase) BlockchainInfo() (iwallet.BlockInfo, error) {
 // received on the address. This, however, is just a wallet implementation
 // detail.
 func (w *WalletBase) CurrentAddress() (iwallet.Address, error) {
-	return w.KeyManager.CurrentAddress(false)
+	return w.Keychain.CurrentAddress(false)
 }
 
 // NewAddress should return a new, never before used address. This is called
@@ -195,12 +195,12 @@ func (w *WalletBase) CurrentAddress() (iwallet.Address, error) {
 // Wallets that only use a single address, like Ethereum, should save the
 // passed in order ID locally such as to associate payments with orders.
 func (w *WalletBase) NewAddress() (iwallet.Address, error) {
-	return w.KeyManager.NewAddress(false)
+	return w.Keychain.NewAddress(false)
 }
 
 // HasKey returns true if the wallet can spend from the given address.
 func (w *WalletBase) HasKey(addr iwallet.Address) (bool, error) {
-	return w.KeyManager.HasKey(addr)
+	return w.Keychain.HasKey(addr)
 }
 
 // GetTransaction returns a transaction given it's ID.
@@ -351,21 +351,21 @@ func (w *WalletBase) SubscribeBlocks() <-chan iwallet.BlockInfo {
 // SetPassphase is called after creating the wallet. It gives the wallet
 // the opportunity to set up encryption of the private keys.
 func (w *WalletBase) SetPassphase(pw []byte) error {
-	return w.KeyManager.SetPassphase(pw)
+	return w.Keychain.SetPassphase(pw)
 }
 
 // ChangePassphrase is called in response to user action requesting the
 // passphrase be changed. It is expected that this will return an error
 // if the old password is incorrect.
 func (w *WalletBase) ChangePassphrase(old, new []byte) error {
-	return w.KeyManager.ChangePassphrase(old, new)
+	return w.Keychain.ChangePassphrase(old, new)
 }
 
 // RemovePassphrase is called in response to user action requesting the
 // passphrase be removed. It is expected that this will return an error
 // if the old password is incorrect.
 func (w *WalletBase) RemovePassphrase(pw []byte) error {
-	return w.KeyManager.RemovePassphrase(pw)
+	return w.Keychain.RemovePassphrase(pw)
 }
 
 // Unlock is called just prior to calling Spend(). The wallet should
@@ -373,5 +373,5 @@ func (w *WalletBase) RemovePassphrase(pw []byte) error {
 // the provided duration after which it should be purged from memory.
 // If the provided password is incorrect it should error.
 func (w *WalletBase) Unlock(pw []byte, howLong time.Duration) error {
-	return w.KeyManager.Unlock(pw, howLong)
+	return w.Keychain.Unlock(pw, howLong)
 }

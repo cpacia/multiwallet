@@ -16,7 +16,7 @@ import (
 type ChainConfig struct {
 	Client             ChainClient
 	DB                 database.Database
-	KeyManager         *KeyManager
+	Keychain           *Keychain
 	CoinType           iwallet.CoinType
 	Logger             *logging.Logger
 	EventBus           Bus
@@ -29,7 +29,7 @@ type ChainManager struct {
 	client           ChainClient
 	best             iwallet.BlockInfo
 	coinType         iwallet.CoinType
-	keyManager       *KeyManager
+	keychain         *Keychain
 	db               database.Database
 	logger           *logging.Logger
 	backoff          *expbackoff.ExponentialBackOff
@@ -49,7 +49,7 @@ func NewChainManager(config *ChainConfig) *ChainManager {
 
 	return &ChainManager{
 		client:           config.Client,
-		keyManager:       config.KeyManager,
+		keychain:         config.Keychain,
 		coinType:         config.CoinType,
 		logger:           config.Logger,
 		db:               config.DB,
@@ -155,7 +155,7 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 					msg.errChan <- errScanInProgress
 				}
 
-				addrs, err := cm.keyManager.GetAddresses()
+				addrs, err := cm.keychain.GetAddresses()
 				if err != nil {
 					msg.errChan <- err
 					continue
@@ -292,7 +292,7 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 		scanFrom = 0
 	}
 
-	addrs, err := cm.keyManager.GetAddresses()
+	addrs, err := cm.keychain.GetAddresses()
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -411,7 +411,7 @@ func (cm *ChainManager) scanTransactions(addrs []iwallet.Address, fromHeight uin
 	// and rescan so as to detect any additional transactions for the new
 	// keys.
 	if newTxs > 0 {
-		if err := cm.keyManager.ExtendKeychain(); err != nil {
+		if err := cm.keychain.ExtendKeychain(); err != nil {
 			return err
 		}
 		return cm.scanTransactions(addrs, fromHeight)
@@ -525,7 +525,7 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 		addrMap      = make(map[iwallet.Address]bool)
 	)
 
-	addrs, err := cm.keyManager.GetAddresses()
+	addrs, err := cm.keychain.GetAddresses()
 	if err != nil {
 		return 0, err
 	}
@@ -560,7 +560,7 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 			for _, to := range tx.To {
 				if addrMap[to.Address] {
 					relevant = true
-					if err := cm.keyManager.MarkAddressAsUsed(dbtx, to.Address); err != nil {
+					if err := cm.keychain.MarkAddressAsUsed(dbtx, to.Address); err != nil {
 						return err
 					}
 					continue
