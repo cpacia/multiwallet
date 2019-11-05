@@ -2,11 +2,20 @@ package base
 
 import (
 	"encoding/hex"
+	"fmt"
 	hd "github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/cpacia/multiwallet/database"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/jinzhu/gorm"
+	"os"
+	"path"
+	"strings"
 	"time"
+)
+
+const (
+	defaultKdfRounds = 4096
+	defaultKeyLength = 32
 )
 
 // DBTx satisfies the iwallet.Tx interface.
@@ -52,25 +61,80 @@ type WalletBase struct {
 	KeyManager   *KeyManager
 	DB           database.Database
 	CoinType     iwallet.CoinType
+	DataDir      string
+	AddressFunc  func(key *hd.ExtendedKey) (iwallet.Address, error)
 
 	subscriptionChan chan *subscription
 
 	done chan struct{}
 }
 
+// Begin returns a new database transaction. A transaction must only be used
+// once. After Commit() or Rollback() is called the transaction can be discarded.
+func (w *WalletBase) Begin() (iwallet.Tx, error) {
+	return &DBTx{}, nil
+}
+
 // WalletExists should return whether the wallet exits or has been
 // initialized.
 func (w *WalletBase) WalletExists() bool {
-	return true
+	_, err := os.Stat(w.DataDir)
+	return !os.IsNotExist(err)
 }
 
+// CreateWallet should initialize the wallet. This will be called by
+// OpenBazaar if WalletExists() returns false.
+//
+// The xPriv may be used to create a bip44 keychain. The xPriv is
+// `cointype` level in the bip44 path. For example in the following
+// path the wallet should only derive the paths after `account` as
+// m, purpose', and coin_type' are kept private by OpenBazaar so this
+// wallet cannot derive keys from other wallets.
+//
+// m / purpose' / coin_type' / account' / change / address_index
+//
+// The birthday can be used determine where to sync state from if
+// appropriate.
+//
+// If the wallet does not implement WalletCrypter then pw will be
+// nil. Otherwise it should be used to encrypt the private keys.
 func (w *WalletBase) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time.Time) error {
-	return nil
+	_, err := os.Stat(w.DataDir)
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("wallet for %s already exists", w.CoinType.CurrencyCode())
+	}
+
+	if err := os.MkdirAll(path.Join(w.DataDir, "logs"), os.ModePerm); err != nil {
+		return err
+	}
+
+	xpub, err := xpriv.Neuter()
+	if err != nil {
+		return err
+	}
+
+	return w.DB.Update(func(tx database.Tx) error {
+		return tx.Save(&database.CoinRecord{
+			MasterPriv:         xpriv.String(),
+			EncryptedMasterKey: false,
+			MasterPub:          xpub.String(),
+			Coin:               w.CoinType.CurrencyCode(),
+			Birthday:           birthday,
+			BestBlockHeight:    0,
+			BestBlockID:        strings.Repeat("0", 64),
+		})
+	})
 }
 
 // Open wallet will be called each time on OpenBazaar start. It
 // will also be called after CreateWallet().
 func (w *WalletBase) OpenWallet() error {
+	keyManager, err := NewKeyManager(w.DB, w.CoinType, w.AddressFunc)
+	if err != nil {
+		return err
+	}
+	w.KeyManager = keyManager
+
 	blockSub, err := w.ChainClient.SubscribeBlocks()
 	if err != nil {
 		return err
@@ -109,6 +173,7 @@ func (w *WalletBase) OpenWallet() error {
 
 // CloseWallet will be called when OpenBazaar shuts down.
 func (w *WalletBase) CloseWallet() error {
+	close(w.done)
 	return nil
 }
 
@@ -288,8 +353,30 @@ func (w *WalletBase) SubscribeBlocks() <-chan iwallet.BlockInfo {
 	return ch
 }
 
-// Begin returns a new database transaction. A transaction must only be used
-// once. After Commit() or Rollback() is called the transaction can be discarded.
-func (w *WalletBase) Begin() (iwallet.Tx, error) {
-	return &DBTx{}, nil
+// SetPassphase is called after creating the wallet. It gives the wallet
+// the opportunity to set up encryption of the private keys.
+func (w *WalletBase) SetPassphase(pw []byte) error {
+	return w.KeyManager.SetPassphase(pw)
+}
+
+// ChangePassphrase is called in response to user action requesting the
+// passphrase be changed. It is expected that this will return an error
+// if the old password is incorrect.
+func (w *WalletBase) ChangePassphrase(old, new []byte) error {
+	return w.KeyManager.ChangePassphrase(old, new)
+}
+
+// RemovePassphrase is called in response to user action requesting the
+// passphrase be removed. It is expected that this will return an error
+// if the old password is incorrect.
+func (w *WalletBase) RemovePassphrase(pw []byte) error {
+	return w.KeyManager.RemovePassphrase(pw)
+}
+
+// Unlock is called just prior to calling Spend(). The wallet should
+// decrypt the private key and hold the decrypted key in memory for
+// the provided duration after which it should be purged from memory.
+// If the provided password is incorrect it should error.
+func (w *WalletBase) Unlock(pw []byte, howLong time.Duration) error {
+	return w.KeyManager.Unlock(pw, howLong)
 }

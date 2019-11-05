@@ -1,11 +1,19 @@
 package base
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha512"
+	"encoding/base64"
 	"errors"
 	hd "github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/cpacia/multiwallet/database"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/jinzhu/gorm"
+	"golang.org/x/crypto/pbkdf2"
+	"io"
+	"time"
 )
 
 // LookaheadWindow is the number of keys to generate after the last
@@ -25,7 +33,7 @@ type KeyManager struct {
 	externalPrivkey *hd.ExtendedKey
 	externalPubkey  *hd.ExtendedKey
 
-	coin iwallet.CoinType
+	coinType iwallet.CoinType
 
 	addrFunc func(key *hd.ExtendedKey) (iwallet.Address, error)
 }
@@ -44,12 +52,28 @@ type KeyManager struct {
 //
 // Further, We derive address in this class using only the master public key so if you wish to
 // encrypt the keychain then you can pass in nil for the accountPrivKey and it wont be tracked here.
-func NewKeyManager(db database.Database, accountPrivKey, accountPubKey *hd.ExtendedKey, coinType iwallet.CoinType, addressFunc func(key *hd.ExtendedKey) (iwallet.Address, error)) (*KeyManager, error) {
+func NewKeyManager(db database.Database, coinType iwallet.CoinType, addressFunc func(key *hd.ExtendedKey) (iwallet.Address, error)) (*KeyManager, error) {
 	var (
 		externalPrivkey, externalPubkey, internalPrivkey, internalPubkey *hd.ExtendedKey
-		err                                                              error
+		coinRecord                                                       database.CoinRecord
 	)
-	if accountPrivKey != nil {
+	err := db.View(func(tx database.Tx) error {
+		return tx.Read().Where("coin=?", coinType.CurrencyCode()).Find(&coinRecord).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	accountPubKey, err := hd.NewKeyFromString(coinRecord.MasterPub)
+	if err != nil {
+		return nil, err
+	}
+
+	if !coinRecord.EncryptedMasterKey {
+		accountPrivKey, err := hd.NewKeyFromString(coinRecord.MasterPriv)
+		if err != nil {
+			return nil, err
+		}
 		externalPrivkey, internalPrivkey, err = generateAccountPrivKeys(accountPrivKey)
 		if err != nil {
 			return nil, err
@@ -71,7 +95,7 @@ func NewKeyManager(db database.Database, accountPrivKey, accountPubKey *hd.Exten
 		internalPubkey:  internalPubkey,
 		externalPrivkey: externalPrivkey,
 		externalPubkey:  externalPubkey,
-		coin:            coinType,
+		coinType:        coinType,
 		addrFunc:        addressFunc,
 	}
 	if err := km.ExtendKeychain(); err != nil {
@@ -80,10 +104,255 @@ func NewKeyManager(db database.Database, accountPrivKey, accountPubKey *hd.Exten
 	return km, nil
 }
 
+// SetPassphase encrypts the master private key in the database and
+// deletes the internal and external private keys from memory.
+func (km *KeyManager) SetPassphase(pw []byte) error {
+	var (
+		salt       = make([]byte, 32)
+		rounds     = defaultKdfRounds
+		keyLen     = defaultKeyLength
+		coinRecord database.CoinRecord
+	)
+
+	return km.db.Update(func(tx database.Tx) error {
+		err := tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Find(&coinRecord).Error
+		if err != nil {
+			return err
+		}
+
+		if coinRecord.EncryptedMasterKey {
+			return errors.New("keychain already encrypted")
+		}
+
+		plaintext := []byte(coinRecord.MasterPriv)
+
+		_, err = rand.Read(salt)
+		if err != nil {
+			return err
+		}
+		dk := pbkdf2.Key(pw, salt, rounds, keyLen, sha512.New)
+
+		block, err := aes.NewCipher(dk)
+		if err != nil {
+			return err
+		}
+
+		// The IV needs to be unique, but not secure. Therefore it's common to
+		// include it at the beginning of the ciphertext.
+		ciphertext := make([]byte, aes.BlockSize+len(plaintext))
+		iv := ciphertext[:aes.BlockSize]
+		if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+			return err
+		}
+
+		stream := cipher.NewCFBEncrypter(block, iv)
+		stream.XORKeyStream(ciphertext[aes.BlockSize:], plaintext)
+
+		coinRecord.MasterPriv = base64.StdEncoding.EncodeToString(ciphertext)
+		coinRecord.EncryptedMasterKey = true
+		coinRecord.KdfRounds = rounds
+		coinRecord.KdfKeyLen = keyLen
+		coinRecord.Salt = salt
+
+		km.externalPrivkey = nil
+		km.internalPrivkey = nil
+
+		return tx.Save(&coinRecord)
+	})
+}
+
+func (km *KeyManager) ChangePassphrase(old, new []byte) error {
+	if !km.IsEncrypted() {
+		return errors.New("wallet is not encrypted")
+	}
+
+	var (
+		salt       = make([]byte, 32)
+		rounds     = defaultKdfRounds
+		keyLen     = defaultKeyLength
+		coinRecord database.CoinRecord
+	)
+
+	return km.db.Update(func(tx database.Tx) error {
+		err := tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Find(&coinRecord).Error
+		if err != nil {
+			return err
+		}
+
+		ciphertext, err := base64.StdEncoding.DecodeString(coinRecord.MasterPriv)
+		if err != nil {
+			return err
+		}
+
+		dk := pbkdf2.Key(old, coinRecord.Salt, coinRecord.KdfRounds, coinRecord.KdfKeyLen, sha512.New)
+
+		block, err := aes.NewCipher(dk)
+		if err != nil {
+			return err
+		}
+
+		// The IV needs to be unique, but not secure. Therefore it's common to
+		// include it at the beginning of the ciphertext.
+		if len(ciphertext) < aes.BlockSize {
+			return errors.New("ciphertext too short")
+		}
+		iv := ciphertext[:aes.BlockSize]
+		ciphertext = ciphertext[aes.BlockSize:]
+
+		stream := cipher.NewCFBDecrypter(block, iv)
+
+		// XORKeyStream can work in-place if the two arguments are the same.
+		stream.XORKeyStream(ciphertext, ciphertext)
+
+		plaintext := ciphertext
+
+		_, err = rand.Read(salt)
+		if err != nil {
+			return err
+		}
+
+		dk = pbkdf2.Key(new, salt, rounds, keyLen, sha512.New)
+
+		block, err = aes.NewCipher(dk)
+		if err != nil {
+			return err
+		}
+
+		// The IV needs to be unique, but not secure. Therefore it's common to
+		// include it at the beginning of the ciphertext.
+		ciphertext = make([]byte, aes.BlockSize+len(plaintext))
+		iv = ciphertext[:aes.BlockSize]
+		if _, err := io.ReadFull(rand.Reader, iv); err != nil {
+			return err
+		}
+
+		stream = cipher.NewCFBEncrypter(block, iv)
+		stream.XORKeyStream(ciphertext[aes.BlockSize:], plaintext)
+
+		coinRecord.MasterPriv = base64.StdEncoding.EncodeToString(ciphertext)
+		coinRecord.EncryptedMasterKey = true
+		coinRecord.KdfRounds = rounds
+		coinRecord.KdfKeyLen = keyLen
+		coinRecord.Salt = salt
+
+		return tx.Save(&coinRecord)
+	})
+}
+
+// RemovePassphrase removes encryption from the master key and puts the
+// external and internal keys back in memory.
+func (km *KeyManager) RemovePassphrase(pw []byte) error {
+	if !km.IsEncrypted() {
+		return errors.New("wallet is not encrypted")
+	}
+
+	return km.db.Update(func(tx database.Tx) error {
+		var coinRecord database.CoinRecord
+		err := tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Find(&coinRecord).Error
+		if err != nil {
+			return err
+		}
+
+		ciphertext, err := base64.StdEncoding.DecodeString(coinRecord.MasterPriv)
+		if err != nil {
+			return err
+		}
+
+		dk := pbkdf2.Key(pw, coinRecord.Salt, coinRecord.KdfRounds, coinRecord.KdfKeyLen, sha512.New)
+
+		block, err := aes.NewCipher(dk)
+		if err != nil {
+			return err
+		}
+
+		// The IV needs to be unique, but not secure. Therefore it's common to
+		// include it at the beginning of the ciphertext.
+		if len(ciphertext) < aes.BlockSize {
+			return errors.New("ciphertext too short")
+		}
+		iv := ciphertext[:aes.BlockSize]
+		ciphertext = ciphertext[aes.BlockSize:]
+
+		stream := cipher.NewCFBDecrypter(block, iv)
+
+		// XORKeyStream can work in-place if the two arguments are the same.
+		stream.XORKeyStream(ciphertext, ciphertext)
+
+		key, err := hd.NewKeyFromString(string(ciphertext))
+		if err != nil {
+			return err
+		}
+
+		km.externalPrivkey, km.internalPrivkey, err = generateAccountPrivKeys(key)
+		if err != nil {
+			return err
+		}
+
+		coinRecord.MasterPriv = string(ciphertext)
+		coinRecord.EncryptedMasterKey = false
+
+		return tx.Save(&coinRecord)
+	})
+}
+
+// Unlock will dcrypt the master key and store the external and internal
+// private keys in memory for howLong.
+func (km *KeyManager) Unlock(pw []byte, howLong time.Duration) error {
+	if !km.IsEncrypted() {
+		return errors.New("wallet is not encrypted")
+	}
+
+	var coinRecord database.CoinRecord
+	err := km.db.View(func(tx database.Tx) error {
+		return tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Find(&coinRecord).Error
+	})
+	if err != nil {
+		return err
+	}
+
+	ciphertext, err := base64.StdEncoding.DecodeString(coinRecord.MasterPriv)
+	if err != nil {
+		return err
+	}
+
+	dk := pbkdf2.Key(pw, coinRecord.Salt, coinRecord.KdfRounds, coinRecord.KdfKeyLen, sha512.New)
+
+	block, err := aes.NewCipher(dk)
+	if err != nil {
+		return err
+	}
+
+	// The IV needs to be unique, but not secure. Therefore it's common to
+	// include it at the beginning of the ciphertext.
+	if len(ciphertext) < aes.BlockSize {
+		return errors.New("ciphertext too short")
+	}
+	iv := ciphertext[:aes.BlockSize]
+	ciphertext = ciphertext[aes.BlockSize:]
+
+	stream := cipher.NewCFBDecrypter(block, iv)
+
+	// XORKeyStream can work in-place if the two arguments are the same.
+	stream.XORKeyStream(ciphertext, ciphertext)
+
+	key, err := hd.NewKeyFromString(string(ciphertext))
+	if err != nil {
+		return err
+	}
+
+	km.externalPrivkey, km.internalPrivkey, err = generateAccountPrivKeys(key)
+	if err != nil {
+		return err
+	}
+
+	time.AfterFunc(howLong, func() {
+		km.externalPrivkey = nil
+		km.internalPrivkey = nil
+	})
+	return nil
+}
+
 // IsEncrypted returns whether or not this keychain is encrypted.
-//
-// TODO: right now this does not handle encrypted. The goal is to
-// make it do so in the future.
 func (km *KeyManager) IsEncrypted() bool {
 	return km.internalPrivkey == nil || km.externalPrivkey == nil
 }
@@ -92,7 +361,7 @@ func (km *KeyManager) IsEncrypted() bool {
 func (km *KeyManager) GetAddresses() ([]iwallet.Address, error) {
 	var records []database.AddressRecord
 	err := km.db.Update(func(tx database.Tx) error {
-		return tx.Read().Where("coin=?", km.coin.CurrencyCode()).Find(&records).Error
+		return tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Find(&records).Error
 	})
 	if err != nil && !gorm.IsRecordNotFoundError(err) {
 		return nil, err
@@ -108,7 +377,7 @@ func (km *KeyManager) GetAddresses() ([]iwallet.Address, error) {
 func (km *KeyManager) CurrentAddress(change bool) (iwallet.Address, error) {
 	var record database.AddressRecord
 	err := km.db.View(func(tx database.Tx) error {
-		return tx.Read().Order("key_index asc").Where("coin=?", km.coin.CurrencyCode()).Where("used=?", false).Where("change=?", change).First(&record).Error
+		return tx.Read().Order("key_index asc").Where("coin=?", km.coinType.CurrencyCode()).Where("used=?", false).Where("change=?", change).First(&record).Error
 	})
 	if err != nil {
 		return iwallet.Address{}, err
@@ -121,7 +390,7 @@ func (km *KeyManager) NewAddress(change bool) (iwallet.Address, error) {
 	var address iwallet.Address
 	err := km.db.Update(func(tx database.Tx) error {
 		var record database.AddressRecord
-		err := tx.Read().Order("key_index desc").Where("coin=?", km.coin.CurrencyCode()).Where("change=?", change).First(&record).Error
+		err := tx.Read().Order("key_index desc").Where("coin=?", km.coinType.CurrencyCode()).Where("change=?", change).First(&record).Error
 		if err != nil {
 			return err
 		}
@@ -148,7 +417,7 @@ func (km *KeyManager) NewAddress(change bool) (iwallet.Address, error) {
 			KeyIndex: index,
 			Change:   false,
 			Used:     false,
-			Coin:     km.coin.CurrencyCode(),
+			Coin:     km.coinType.CurrencyCode(),
 		}
 		if err := km.extendKeychain(tx); err != nil {
 			return err
@@ -164,7 +433,7 @@ func (km *KeyManager) HasKey(addr iwallet.Address) (bool, error) {
 	has := false
 	err := km.db.View(func(tx database.Tx) error {
 		var record database.AddressRecord
-		err := tx.Read().Where("coin=?", km.coin.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
+		err := tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
 		if err != nil && !gorm.IsRecordNotFoundError(err) {
 			return err
 		} else if err == nil {
@@ -182,7 +451,7 @@ func (km *KeyManager) HasKey(addr iwallet.Address) (bool, error) {
 func (km *KeyManager) KeyForAddress(addr iwallet.Address, accountPrivKey *hd.ExtendedKey) (*hd.ExtendedKey, error) {
 	var record database.AddressRecord
 	err := km.db.View(func(tx database.Tx) error {
-		return tx.Read().Where("coin=?", km.coin.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
+		return tx.Read().Where("coin=?", km.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
 	})
 	if err != nil {
 		return nil, err
@@ -217,7 +486,7 @@ func (km *KeyManager) KeyForAddress(addr iwallet.Address, accountPrivKey *hd.Ext
 // MarkAddressAsUsed marks the given address as used and extends the keychain.
 func (km *KeyManager) MarkAddressAsUsed(dbtx database.Tx, addr iwallet.Address) error {
 	var record database.AddressRecord
-	err := dbtx.Read().Where("coin=?", km.coin.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
+	err := dbtx.Read().Where("coin=?", km.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
 	if err != nil {
 		return err
 	}
@@ -266,7 +535,7 @@ func (km *KeyManager) extendKeychain(tx database.Tx) error {
 
 func (km *KeyManager) createNewKeys(dbtx database.Tx, change bool, numKeys int) error {
 	var record database.AddressRecord
-	err := dbtx.Read().Order("key_index desc").Where("coin=?", km.coin.CurrencyCode()).Where("used=?", true).Where("change=?", change).First(&record).Error
+	err := dbtx.Read().Order("key_index desc").Where("coin=?", km.coinType.CurrencyCode()).Where("used=?", true).Where("change=?", change).First(&record).Error
 	if err != nil && !gorm.IsRecordNotFoundError(err) {
 		return err
 	}
@@ -299,7 +568,7 @@ func (km *KeyManager) createNewKeys(dbtx database.Tx, change bool, numKeys int) 
 			KeyIndex: nextIndex,
 			Change:   change,
 			Used:     false,
-			Coin:     km.coin.CurrencyCode(),
+			Coin:     km.coinType.CurrencyCode(),
 		}
 
 		if err := dbtx.Save(&newRecord); err != nil {
@@ -313,7 +582,7 @@ func (km *KeyManager) createNewKeys(dbtx database.Tx, change bool, numKeys int) 
 
 func (km *KeyManager) getLookaheadWindows(dbtx database.Tx) (internalUnused, externalUnused int, err error) {
 	var addressRecords []database.AddressRecord
-	rerr := dbtx.Read().Where("coin=?", km.coin.CurrencyCode()).Find(&addressRecords).Error
+	rerr := dbtx.Read().Where("coin=?", km.coinType.CurrencyCode()).Find(&addressRecords).Error
 	if rerr != nil && !gorm.IsRecordNotFoundError(rerr) {
 		err = rerr
 		return

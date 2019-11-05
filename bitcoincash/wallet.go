@@ -13,7 +13,6 @@ import (
 
 type BitcoinCashWallet struct {
 	base.WalletBase
-
 }
 
 func NewBitcoinCashWallet() *BitcoinCashWallet {

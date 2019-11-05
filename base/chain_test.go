@@ -24,17 +24,6 @@ func newTestChain() (*ChainManager, *MockChainClient, error) {
 		return nil, nil, err
 	}
 
-	db.Update(func(tx database.Tx) error {
-		return tx.Save(&database.CoinRecord{
-			MasterPriv:         "",
-			EncryptedMasterKey: false,
-			MasterPub:          "",
-			Coin:               "",
-			BestBlockHeight:    0,
-			BestBlockID:        "",
-		})
-	})
-
 	masterPrivKey, err := hd.NewMaster(make([]byte, 32), &chaincfg.MainNetParams)
 	if err != nil {
 		return nil, nil, err
@@ -59,7 +48,7 @@ func newTestChain() (*ChainManager, *MockChainClient, error) {
 		return nil, nil, err
 	}
 
-	keyManager, err := NewKeyManager(db, masterPrivKey, masterPubKey, iwallet.CtTestnetMock, func(key *hd.ExtendedKey) (iwallet.Address, error) {
+	keyManager, err := NewKeyManager(db, iwallet.CtTestnetMock, func(key *hd.ExtendedKey) (iwallet.Address, error) {
 		h := sha256.Sum256([]byte(key.String()))
 		return iwallet.NewAddress(hex.EncodeToString(h[:]), iwallet.CtTestnetMock), nil
 	})
@@ -77,7 +66,6 @@ func newTestChain() (*ChainManager, *MockChainClient, error) {
 		KeyManager:         keyManager,
 		CoinType:           iwallet.CtTestnetMock,
 		Logger:             log,
-		WatchOnlyAddress:   nil,
 		TxSubscriptionChan: nil,
 		EventBus:           NewBus(),
 	}

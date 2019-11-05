@@ -9,4 +9,5 @@ require (
 	github.com/cpacia/wallet-interface v0.0.0-20191104022333-435715e6ec06
 	github.com/jinzhu/gorm v1.9.11
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
+	golang.org/x/crypto v0.0.0-20190325154230-a5d413f7728c
 )

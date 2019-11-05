@@ -11,8 +11,12 @@ import (
 type CoinRecord struct {
 	MasterPriv         string
 	EncryptedMasterKey bool
+	KdfRounds          int
+	KdfKeyLen          int
+	Salt               []byte
 	MasterPub          string
 	Coin               string `gorm:"primary_key"`
+	Birthday           time.Time
 	BestBlockHeight    uint64
 	BestBlockID        string
 }

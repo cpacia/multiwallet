@@ -7,6 +7,7 @@ func InitializeDatabase(db Database) error {
 			&UtxoRecord{},
 			&TransactionRecord{},
 			&AddressRecord{},
+			&WatchedAddressRecord{},
 		}
 		for _, model := range models {
 			if err := tx.Migrate(model); err != nil {

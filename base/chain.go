@@ -19,7 +19,6 @@ type ChainConfig struct {
 	KeyManager         *KeyManager
 	CoinType           iwallet.CoinType
 	Logger             *logging.Logger
-	WatchOnlyAddress   []iwallet.Address
 	EventBus           Bus
 	TxSubscriptionChan chan iwallet.Transaction
 }
@@ -54,7 +53,6 @@ func NewChainManager(config *ChainConfig) *ChainManager {
 		coinType:         config.CoinType,
 		logger:           config.Logger,
 		db:               config.DB,
-		watchOnly:        config.WatchOnlyAddress,
 		unconfirmedTxs:   make(map[iwallet.TransactionID]iwallet.Transaction),
 		subscriptionChan: config.TxSubscriptionChan,
 		eventBus:         config.EventBus,
@@ -235,6 +233,7 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 	var (
 		currentBestBlock iwallet.BlockInfo
 		unconfirmed      []database.TransactionRecord
+		watchAddresses   []database.WatchedAddressRecord
 	)
 	err := cm.db.View(func(tx database.Tx) error {
 		var record database.CoinRecord
@@ -245,7 +244,17 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 			BlockID: iwallet.BlockID(record.BestBlockID),
 			Height:  record.BestBlockHeight,
 		}
-		return tx.Read().Where("coin=?", cm.coinType).Where("block_height=?", 0).Find(&unconfirmed).Error
+
+		err := tx.Read().Where("coin=?", cm.coinType).Find(&watchAddresses).Error
+		if err != nil && !gorm.IsRecordNotFoundError(err) {
+			return err
+		}
+
+		err = tx.Read().Where("coin=?", cm.coinType).Where("block_height=?", 0).Find(&unconfirmed).Error
+		if err != nil && !gorm.IsRecordNotFoundError(err) {
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, nil, 0, err
@@ -257,6 +266,10 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 			return nil, nil, 0, err
 		}
 		cm.unconfirmedTxs[tx.ID] = tx
+	}
+
+	for _, rec := range watchAddresses {
+		cm.watchOnly = append(cm.watchOnly, iwallet.NewAddress(rec.Addr, cm.coinType))
 	}
 
 	blockchainInfo, err := cm.client.GetBlockchainInfo()
