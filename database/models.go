@@ -64,7 +64,7 @@ type TransactionRecord struct {
 	Coin                   string
 }
 
-func NewTransactionRecord(tx iwallet.Transaction, timestamp time.Time, coinType iwallet.CoinType) (*TransactionRecord, error) {
+func NewTransactionRecord(tx iwallet.Transaction, coinType iwallet.CoinType) (*TransactionRecord, error) {
 	out, err := json.MarshalIndent(&tx, "", "    ")
 	if err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func NewTransactionRecord(tx iwallet.Transaction, timestamp time.Time, coinType 
 		Txid:                   tx.ID.String(),
 		SerlializedTransaction: out,
 		BlockHeight:            tx.Height,
-		Timestamp:              timestamp,
+		Timestamp:              tx.Timestamp,
 		Coin:                   coinType.CurrencyCode(),
 	}, nil
 }

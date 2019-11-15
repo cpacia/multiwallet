@@ -36,6 +36,10 @@ github.com/cpacia/wallet-interface v0.0.0-20191102234951-4d1c3d7d2a13 h1:LSuPMDV
 github.com/cpacia/wallet-interface v0.0.0-20191102234951-4d1c3d7d2a13/go.mod h1:ax38EmXdy/eZ9dznU/Swn8qfrsUZtVSnrsSxmcq1xYY=
 github.com/cpacia/wallet-interface v0.0.0-20191104022333-435715e6ec06 h1:Cb0/N/8uaeG+pFJ9cDJaqIrNI+2E8HRTHruxcPB0QMQ=
 github.com/cpacia/wallet-interface v0.0.0-20191104022333-435715e6ec06/go.mod h1:ax38EmXdy/eZ9dznU/Swn8qfrsUZtVSnrsSxmcq1xYY=
+github.com/cpacia/wallet-interface v0.0.0-20191111210226-49484742c5e8 h1:1YioSeE8rdOXg25pKZA9ffHFa0om4HP9tCFT12m2WrE=
+github.com/cpacia/wallet-interface v0.0.0-20191111210226-49484742c5e8/go.mod h1:ax38EmXdy/eZ9dznU/Swn8qfrsUZtVSnrsSxmcq1xYY=
+github.com/cpacia/wallet-interface v0.0.0-20191114233537-63c15aad017f h1:M1iFd0KdT15Ohu8WK9ijLXZpLejcygy/2qkz3dAqcY4=
+github.com/cpacia/wallet-interface v0.0.0-20191114233537-63c15aad017f/go.mod h1:ax38EmXdy/eZ9dznU/Swn8qfrsUZtVSnrsSxmcq1xYY=
 github.com/davecgh/go-spew v0.0.0-20171005155431-ecdeabc65495/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/denisenkom/go-mssqldb v0.0.0-20190515213511-eb9f6a1743f3/go.mod h1:zAg7JM8CkOJ43xKXIj7eRO9kmWm/TW578qo+oDO6tuM=

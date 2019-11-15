@@ -234,11 +234,22 @@ func (w *WalletBase) GetTransaction(id iwallet.TransactionID) (iwallet.Transacti
 	return w.ChainClient.GetTransaction(id)
 }
 
-// Transactions returns a slice of this wallet's transactions.
-func (w *WalletBase) Transactions() ([]iwallet.Transaction, error) {
+// Transactions returns a slice of this wallet's transactions. The transactions should
+// be sorted last to first and the limit and offset respected. The offsetID means
+// 'return transactions starting with the transaction after offsetID in the sorted list'
+func (w *WalletBase) Transactions(limit int, offsetID iwallet.TransactionID) ([]iwallet.Transaction, error) {
 	var records []database.TransactionRecord
 	err := w.DB.View(func(tx database.Tx) error {
-		return tx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Find(&records).Error
+		if offsetID != "" {
+			var rec database.TransactionRecord
+			err := tx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Where("txid=?", offsetID.String()).First(&rec).Error
+			if err != nil {
+				return err
+			}
+			return tx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Where("timestamp < ?", rec.Timestamp).Order("timestamp desc").Limit(limit).Find(&records).Error
+		}
+
+		return tx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Order("timestamp desc").Limit(limit).Find(&records).Error
 	})
 	if err != nil {
 		return nil, err

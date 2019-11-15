@@ -462,13 +462,13 @@ func (cm *ChainManager) updateUnconfirmed(unconfirmed map[iwallet.TransactionID]
 	}
 
 	updated := make([]iwallet.Transaction, 0, len(unconfirmed))
-	cm.db.Update(func(tx database.Tx) error {
+	err := cm.db.Update(func(tx database.Tx) error {
 		for _, resp := range responses {
 			if resp.Height > 0 && resp.BlockInfo != nil {
 				var record database.TransactionRecord
 				err := tx.Read().Where("txid=?", resp.ID.String()).First(&record).Error
 				if err == nil {
-					newRecord, err := database.NewTransactionRecord(resp, resp.BlockInfo.BlockTime, cm.coinType)
+					newRecord, err := database.NewTransactionRecord(resp, cm.coinType)
 					if err != nil {
 						cm.logger.Errorf("[%s] Error updating unconfirmed transaction %s: %s", cm.coinType, resp.ID, err)
 					}
@@ -503,6 +503,9 @@ func (cm *ChainManager) updateUnconfirmed(unconfirmed map[iwallet.TransactionID]
 		}
 		return nil
 	})
+	if err != nil {
+		cm.logger.Error(err)
+	}
 
 	// Send updated transactions out to the subscriber.
 	if cm.subscriptionChan != nil {
@@ -550,11 +553,14 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 		// database, just update the height and timestamp if necessary. If it doesn't already
 		// exist then save it.
 		for _, tx := range newTxs {
-			var relevant bool
+			var (
+				relevant bool
+				total = iwallet.NewAmount(0)
+			)
 			for _, from := range tx.From {
 				if addrMap[from.Address] {
 					relevant = true
-					break
+					total = total.Sub(from.Amount)
 				}
 			}
 			for _, to := range tx.To {
@@ -563,7 +569,7 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 					if err := cm.keychain.MarkAddressAsUsed(dbtx, to.Address); err != nil {
 						return err
 					}
-					continue
+					total = total.Add(to.Amount)
 				}
 			}
 
@@ -580,12 +586,13 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 
 				newOrUpdated = append(newOrUpdated, tx)
 			} else if !ok && relevant {
-				t := time.Now()
+				tx.Value = total
+				tx.Timestamp = time.Now()
 				if tx.BlockInfo != nil {
-					t = tx.BlockInfo.BlockTime
+					tx.Timestamp = tx.BlockInfo.BlockTime
 				}
 
-				txr, err := database.NewTransactionRecord(tx, t, cm.coinType)
+				txr, err := database.NewTransactionRecord(tx, cm.coinType)
 				if err != nil {
 					return err
 				}
