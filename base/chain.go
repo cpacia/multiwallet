@@ -555,7 +555,7 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 		for _, tx := range newTxs {
 			var (
 				relevant bool
-				total = iwallet.NewAmount(0)
+				total    = iwallet.NewAmount(0)
 			)
 			for _, from := range tx.From {
 				if addrMap[from.Address] {

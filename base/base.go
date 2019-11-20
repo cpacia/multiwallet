@@ -229,8 +229,23 @@ func (w *WalletBase) GetTransaction(id iwallet.TransactionID) (iwallet.Transacti
 		return tx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Where("txid=?", id.String()).First(&record).Error
 	})
 	if err == nil {
-		return record.Transaction()
+		// We need to return the input metadata with this transaction. If it isn't stored with this
+		// transaction in the database then we will need to use the API to get a copy of the transaction
+		// with the input metadata.
+		tx, err := record.Transaction()
+		if err == nil {
+			missingInputMetadata := false
+			for _, in := range tx.From {
+				if in.Address.String() == "" || in.Amount.String() == "" || in.Amount.Cmp(iwallet.NewAmount(0)) == 0 {
+					missingInputMetadata = true
+				}
+			}
+			if !missingInputMetadata {
+				return tx, nil
+			}
+		}
 	}
+
 	return w.ChainClient.GetTransaction(id)
 }
 
