@@ -20,7 +20,7 @@ var ErrReadOnly = errors.New("tx is read only")
 // flat file store for the public data and a sqlite database.
 type DB struct {
 	db  *gorm.DB
-	mtx sync.RWMutex
+	mtx sync.Mutex
 }
 
 // NewSqliteDB instantiates a new db which satisfies the Database interface.
@@ -29,7 +29,7 @@ func NewSqliteDB(dataDir string) (database.Database, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &DB{db: db, mtx: sync.RWMutex{}}, nil
+	return &DB{db: db, mtx: sync.Mutex{}}, nil
 }
 
 // NewMemoryDB instantiates a new db which satisfies the Database interface.
@@ -39,7 +39,7 @@ func NewMemoryDB() (database.Database, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &DB{db: db, mtx: sync.RWMutex{}}, nil
+	return &DB{db: db, mtx: sync.Mutex{}}, nil
 }
 
 // View invokes the passed function in the context of a managed
@@ -49,8 +49,8 @@ func NewMemoryDB() (database.Database, error) {
 // Calling Rollback or Commit on the transaction passed to the
 // user-supplied function will result in a panic.
 func (fdb *DB) View(fn func(tx database.Tx) error) error {
-	fdb.mtx.RLock()
-	defer fdb.mtx.RUnlock()
+	fdb.mtx.Lock()
+	defer fdb.mtx.Unlock()
 
 	tx := readTx(fdb.db)
 	if err := fn(tx); err != nil {

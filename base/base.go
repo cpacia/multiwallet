@@ -214,7 +214,12 @@ func (w *WalletBase) CurrentAddress() (iwallet.Address, error) {
 // Wallets that only use a single address, like Ethereum, should save the
 // passed in order ID locally such as to associate payments with orders.
 func (w *WalletBase) NewAddress() (iwallet.Address, error) {
-	return w.Keychain.NewAddress(false)
+	addr, err := w.Keychain.NewAddress(false)
+	if err != nil {
+		return addr, err
+	}
+	w.ChainManager.AddAddressSubscription(addr)
+	return addr, nil
 }
 
 // HasKey returns true if the wallet can spend from the given address.

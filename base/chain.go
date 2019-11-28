@@ -90,6 +90,10 @@ type addWatchOnly struct {
 	addr iwallet.Address
 }
 
+type updateAddrSubscription struct {
+	addrs []iwallet.Address
+}
+
 // Start will begin the ChainManager process and sync up the wallet.
 // This should be run in a new goroutine.
 func (cm *ChainManager) Start() {
@@ -167,8 +171,18 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 					msg.errChan <- err
 				}(append(addrs, cm.watchOnly...), msg)
 			case *saveJob:
-				if _, err := cm.saveTransactionsAndUtxos(msg.txs); err != nil {
+				newTxs, err := cm.saveTransactionsAndUtxos(msg.txs)
+				if err != nil {
 					cm.logger.Errorf("Error saving incoming transaction for coin %s: %s", cm.coinType, err)
+				}
+				if newTxs > 0 {
+					addrs, err := cm.keychain.GetAddresses()
+					if err != nil {
+						cm.logger.Errorf("Error loading addresses for coin %s: %s", cm.coinType, err)
+					}
+					go func() {
+						cm.msgChan <- &updateAddrSubscription{addrs: addrs}
+					}()
 				}
 
 			case *addUnconfirmed:
@@ -182,12 +196,20 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 
 			case *addWatchOnly:
 				cm.watchOnly = append(cm.watchOnly, msg.addr)
+				transactionSub.Subscribe <- msg.addr
+
+			case *updateAddrSubscription:
+				for _, addr := range msg.addrs {
+					transactionSub.Subscribe <- addr
+				}
 			}
 		case tx := <-transactionSub.Out:
 			if tx.Height == 0 {
 				cm.unconfirmedTxs[tx.ID] = tx
 			}
-			cm.msgChan <- &saveJob{txs: []iwallet.Transaction{tx}}
+			go func() {
+				cm.msgChan <- &saveJob{txs: []iwallet.Transaction{tx}}
+			}()
 
 		case blockInfo := <-blocksSub.Out:
 			if len(cm.unconfirmedTxs) > 0 {
@@ -326,6 +348,10 @@ func (cm *ChainManager) AddWatchOnly(addr iwallet.Address) {
 	cm.msgChan <- &addWatchOnly{addr: addr}
 }
 
+func (cm *ChainManager) AddAddressSubscription(addr iwallet.Address) {
+	cm.msgChan <- &updateAddrSubscription{addrs: []iwallet.Address{addr}}
+}
+
 // ScanTransactions triggers a rescan of all transactions and utxos from the provided height.
 // If the rescan fails, it will be retried using an exponential backoff. If a rescan is already
 // in progress this request will be ignored.
@@ -414,7 +440,16 @@ func (cm *ChainManager) scanTransactions(addrs []iwallet.Address, fromHeight uin
 		if err := cm.keychain.ExtendKeychain(); err != nil {
 			return err
 		}
-		return cm.scanTransactions(addrs, fromHeight)
+		newAddrs, err := cm.keychain.GetAddresses()
+		if err != nil {
+			return err
+		}
+		go func() {
+			cm.msgChan <- &updateAddrSubscription{
+				addrs: newAddrs,
+			}
+		}()
+		return cm.scanTransactions(newAddrs, fromHeight)
 	}
 	if cm.eventBus != nil {
 		cm.eventBus.Emit(&ScanCompleteEvent{})

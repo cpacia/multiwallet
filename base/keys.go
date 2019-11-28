@@ -70,7 +70,6 @@ func NewKeychain(db database.Database, coinType iwallet.CoinType, addressFunc fu
 	if err != nil {
 		return nil, err
 	}
-
 	accountPubKey, err := hd.NewKeyFromString(coinRecord.MasterPub)
 	if err != nil {
 		return nil, err

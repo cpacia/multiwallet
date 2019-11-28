@@ -8,8 +8,10 @@ type BlockSubscription struct {
 }
 
 type TransactionSubscription struct {
-	Out   chan iwallet.Transaction
-	Close func()
+	Out         chan iwallet.Transaction
+	Subscribe   chan iwallet.Address
+	Unsubscribe chan iwallet.Address
+	Close       func()
 }
 
 type ChainClient interface {
@@ -25,5 +27,7 @@ type ChainClient interface {
 
 	SubscribeBlocks() (*BlockSubscription, error)
 
-	Broadcast(tx iwallet.Transaction) error
+	Broadcast(serializedTx []byte) error
+
+	Close() error
 }

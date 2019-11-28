@@ -3,6 +3,7 @@ package base
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	iwallet "github.com/cpacia/wallet-interface"
 	"math/rand"
@@ -146,7 +147,7 @@ func (m *MockChainClient) SubscribeTransactions(addrs []iwallet.Address) (*Trans
 	if m.returnErr != nil {
 		return nil, m.returnErr
 	}
-
+	closeChan := make(chan struct{})
 	sub := &TransactionSubscription{
 		Out: make(chan iwallet.Transaction),
 		Close: func() {
@@ -156,12 +157,32 @@ func (m *MockChainClient) SubscribeTransactions(addrs []iwallet.Address) (*Trans
 			for _, addr := range addrs {
 				delete(m.txSubs, addr)
 			}
+			close(closeChan)
 		},
+		Subscribe:   make(chan iwallet.Address),
+		Unsubscribe: make(chan iwallet.Address),
 	}
 
 	for _, addr := range addrs {
 		m.txSubs[addr] = sub
 	}
+
+	go func() {
+		for {
+			select {
+			case <-closeChan:
+				return
+			case addr := <- sub.Subscribe:
+				m.mtx.Lock()
+				m.txSubs[addr] = sub
+				m.mtx.Unlock()
+			case addr := <- sub.Unsubscribe:
+				m.mtx.Lock()
+				delete(m.txSubs, addr)
+				m.mtx.Unlock()
+			}
+		}
+	}()
 
 	return sub, nil
 }
@@ -186,12 +207,17 @@ func (m *MockChainClient) SubscribeBlocks() (*BlockSubscription, error) {
 	return sub, nil
 }
 
-func (m *MockChainClient) Broadcast(tx iwallet.Transaction) error {
+func (m *MockChainClient) Broadcast(serializedTx []byte) error {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
 	if m.returnErr != nil {
 		return m.returnErr
+	}
+
+	var tx iwallet.Transaction
+	if err := json.Unmarshal(serializedTx, &tx); err != nil {
+		return err
 	}
 
 	m.txIndex[tx.ID] = tx
@@ -235,6 +261,10 @@ func (m *MockChainClient) Broadcast(tx iwallet.Transaction) error {
 		}
 	}()
 
+	return nil
+}
+
+func (m *MockChainClient) Close() error {
 	return nil
 }
 
