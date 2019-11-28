@@ -172,11 +172,11 @@ func (m *MockChainClient) SubscribeTransactions(addrs []iwallet.Address) (*Trans
 			select {
 			case <-closeChan:
 				return
-			case addr := <- sub.Subscribe:
+			case addr := <-sub.Subscribe:
 				m.mtx.Lock()
 				m.txSubs[addr] = sub
 				m.mtx.Unlock()
-			case addr := <- sub.Unsubscribe:
+			case addr := <-sub.Unsubscribe:
 				m.mtx.Lock()
 				delete(m.txSubs, addr)
 				m.mtx.Unlock()

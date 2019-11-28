@@ -103,5 +103,6 @@ type UtxoRecord struct {
 	Height    uint64
 	Timestamp time.Time
 	Amount    string
+	Address   string
 	Coin      string
 }

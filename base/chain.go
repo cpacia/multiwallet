@@ -352,6 +352,11 @@ func (cm *ChainManager) AddAddressSubscription(addr iwallet.Address) {
 	cm.msgChan <- &updateAddrSubscription{addrs: []iwallet.Address{addr}}
 }
 
+func (cm *ChainManager) IngestTransaction(tx iwallet.Transaction) error {
+	_, err := cm.saveTransactionsAndUtxos([]iwallet.Transaction{tx})
+	return err
+}
+
 // ScanTransactions triggers a rescan of all transactions and utxos from the provided height.
 // If the rescan fails, it will be retried using an exponential backoff. If a rescan is already
 // in progress this request will be ignored.
@@ -671,6 +676,7 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 						Height:    tx.Height,
 						Timestamp: t,
 						Amount:    to.Amount.String(),
+						Address:   to.Address.String(),
 						Coin:      cm.coinType.CurrencyCode(),
 					}
 				}

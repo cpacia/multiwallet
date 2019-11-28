@@ -1,11 +1,17 @@
 package base
 
 import (
+	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"github.com/btcsuite/btcutil/coinset"
 	hd "github.com/btcsuite/btcutil/hdkeychain"
+	expbackoff "github.com/cenkalti/backoff"
 	"github.com/cpacia/multiwallet/database"
+	"github.com/cpacia/multiwallet/database/sqlitedb"
 	iwallet "github.com/cpacia/wallet-interface"
+	"github.com/gcash/bchd/wire"
 	"github.com/jinzhu/gorm"
 	"github.com/op/go-logging"
 	"os"
@@ -13,6 +19,15 @@ import (
 	"strings"
 	"time"
 )
+
+// WalletConfig is struct that can be used pass into the constructor
+// for each coin's wallet.
+type WalletConfig struct {
+	DataDir   string
+	Logger    *logging.Logger
+	Testnet   bool
+	ClientUrl string
+}
 
 // DBTx satisfies the iwallet.Tx interface.
 type DBTx struct {
@@ -110,6 +125,11 @@ func (w *WalletBase) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time
 		return err
 	}
 
+	w.DB, err = sqlitedb.NewSqliteDB(w.DataDir)
+	if err != nil {
+		return err
+	}
+
 	return w.DB.Update(func(tx database.Tx) error {
 		return tx.Save(&database.CoinRecord{
 			MasterPriv:         xpriv.String(),
@@ -126,6 +146,13 @@ func (w *WalletBase) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time
 // Open wallet will be called each time on OpenBazaar start. It
 // will also be called after CreateWallet().
 func (w *WalletBase) OpenWallet() error {
+	if w.DB == nil {
+		var err error
+		w.DB, err = sqlitedb.NewSqliteDB(w.DataDir)
+		if err != nil {
+			return err
+		}
+	}
 	keychain, err := NewKeychain(w.DB, w.CoinType, w.AddressFunc)
 	if err != nil {
 		return err
@@ -185,6 +212,12 @@ func (w *WalletBase) OpenWallet() error {
 // CloseWallet will be called when OpenBazaar shuts down.
 func (w *WalletBase) CloseWallet() error {
 	if err := w.ChainManager.Stop(); err != nil {
+		return err
+	}
+	if err := w.DB.Close(); err != nil {
+		return err
+	}
+	if err := w.ChainClient.Close(); err != nil {
 		return err
 	}
 	close(w.done)
@@ -252,6 +285,27 @@ func (w *WalletBase) GetTransaction(id iwallet.TransactionID) (iwallet.Transacti
 	}
 
 	return w.ChainClient.GetTransaction(id)
+}
+
+// GetAddressTransactions returns the transactions sending to or spending from this address.
+// Note this will only ever be called for an order's payment address transaction so for the
+// purpose of this method the wallet only needs to be able to track transactions paid to a
+// wallet address and any watched addresses.
+func (w *WalletBase) GetAddressTransactions(addr iwallet.Address) ([]iwallet.Transaction, error) {
+	backoff := expbackoff.NewExponentialBackOff()
+	backoff.MaxElapsedTime = time.Second * 30
+
+	for {
+		txs, err := w.ChainClient.GetAddressTransactions(addr, 0)
+		if err == nil {
+			return txs, nil
+		}
+		next := backoff.NextBackOff()
+		if next == expbackoff.Stop {
+			return nil, errors.New("timed out querying for address transactions")
+		}
+		time.Sleep(next)
+	}
 }
 
 // Transactions returns a slice of this wallet's transactions. The transactions should
@@ -424,4 +478,53 @@ func (w *WalletBase) RemovePassphrase(pw []byte) error {
 // If the provided password is incorrect it should error.
 func (w *WalletBase) Unlock(pw []byte, howLong time.Duration) error {
 	return w.Keychain.Unlock(pw, howLong)
+}
+
+// GatherCoins returns the full list of spendable coins in the wallet along
+// with the key needed to spend. The wallet must be unlocked to use this
+// function.
+func (w *WalletBase) GatherCoins() (map[coinset.Coin]*hd.ExtendedKey, error) {
+	var utxoRecords []database.UtxoRecord
+	err := w.DB.View(func(dbtx database.Tx) error {
+		return dbtx.Read().Where("coin = ?", w.CoinType.CurrencyCode()).Find(&utxoRecords).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	bcInfo, err := w.BlockchainInfo()
+	if err != nil {
+		return nil, err
+	}
+
+	m := make(map[coinset.Coin]*hd.ExtendedKey)
+	for _, u := range utxoRecords {
+		var confirmations int64
+		if u.Height > 0 {
+			confirmations = int64(bcInfo.Height - u.Height)
+		}
+
+		var op wire.OutPoint
+		ser, err := hex.DecodeString(u.Outpoint)
+		if err != nil {
+			return nil, err
+		}
+		if err := op.Deserialize(bytes.NewReader(ser)); err != nil {
+			return nil, err
+		}
+
+		addr := iwallet.NewAddress(u.Address, w.CoinType)
+		c, err := NewCoin(iwallet.TransactionID(op.Hash.String()), op.Index, iwallet.NewAmount(u.Amount), confirmations, addr)
+		if err != nil {
+			continue
+		}
+
+		key, err := w.Keychain.KeyForAddress(addr, nil)
+		if err != nil {
+			continue
+		}
+
+		m[c] = key
+	}
+	return m, nil
 }
