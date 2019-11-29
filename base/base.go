@@ -120,6 +120,10 @@ func (w *WalletBase) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time
 		return err
 	}
 
+	if err := database.InitializeDatabase(w.DB); err != nil {
+		return err
+	}
+
 	err = w.DB.View(func(tx database.Tx) error {
 		var rec database.CoinRecord
 		return tx.Read().Where("coin = ?", w.CoinType.CurrencyCode()).Find(&rec).Error
@@ -150,6 +154,10 @@ func (w *WalletBase) OpenWallet() error {
 		var err error
 		w.DB, err = sqlitedb.NewSqliteDB(w.DataDir)
 		if err != nil {
+			return err
+		}
+
+		if err := database.InitializeDatabase(w.DB); err != nil {
 			return err
 		}
 	}
