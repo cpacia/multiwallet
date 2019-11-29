@@ -15,7 +15,6 @@ import (
 	"github.com/jinzhu/gorm"
 	"github.com/op/go-logging"
 	"os"
-	"path"
 	"strings"
 	"time"
 )
@@ -114,10 +113,6 @@ func (w *WalletBase) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time
 	_, err := os.Stat(w.DataDir)
 	if !os.IsNotExist(err) {
 		return fmt.Errorf("wallet for %s already exists", w.CoinType.CurrencyCode())
-	}
-
-	if err := os.MkdirAll(path.Join(w.DataDir, "logs"), os.ModePerm); err != nil {
-		return err
 	}
 
 	xpub, err := xpriv.Neuter()

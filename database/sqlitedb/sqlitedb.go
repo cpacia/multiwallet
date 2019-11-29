@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	dbName = "openbazaar.db"
+	dbName = "multiwallet.db"
 )
 
 var ErrReadOnly = errors.New("tx is read only")
