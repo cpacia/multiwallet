@@ -103,7 +103,7 @@ func (cm *ChainManager) Start() {
 	transactionSub, blocksSub, fromHeight, err := cm.initializeChain()
 	if err != nil {
 		backoffDuration := cm.backoff.NextBackOff()
-		cm.logger.Errorf("Error initializing chain for coin %s: %s. Retrying in %s", cm.coinType, err, backoffDuration)
+		cm.logger.Errorf("[%s] Error initializing chain: %s. Retrying in %s", cm.coinType, err, backoffDuration)
 		select {
 		case <-time.After(backoffDuration):
 			go cm.Start()
@@ -118,6 +118,7 @@ func (cm *ChainManager) Start() {
 		cm.eventBus.Emit(&ChainStartedEvent{})
 	}
 
+	cm.logger.Debugf("[%s] Chain initialized at height: %d", cm.coinType.CurrencyCode(), fromHeight)
 	go cm.chainHandler(transactionSub, blocksSub)
 	go cm.ScanTransactions(fromHeight)
 }
@@ -243,7 +244,7 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 			if cm.eventBus != nil {
 				cm.eventBus.Emit(&BlockReceivedEvent{})
 			}
-			cm.logger.Debugf("[%s] Block received at height %d", cm.coinType.CurrencyCode(), blockInfo.Height)
+			cm.logger.Debugf("[%s] Block received at height: %d", cm.coinType.CurrencyCode(), blockInfo.Height)
 		case <-cm.done:
 			transactionSub.Close()
 			blocksSub.Close()
