@@ -309,7 +309,7 @@ func mockOutpoint() []byte {
 func mockAddress() iwallet.Address {
 	address := make([]byte, 20)
 	rand.Read(address)
-	return iwallet.NewAddress(hex.EncodeToString(address), iwallet.CtTestnetMock)
+	return iwallet.NewAddress(hex.EncodeToString(address), iwallet.CtMock)
 }
 
 func mockAmount() iwallet.Amount {

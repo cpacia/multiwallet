@@ -39,7 +39,7 @@ func newTestChain() (*ChainManager, *MockChainClient, error) {
 			MasterPriv:         masterPrivKey.String(),
 			EncryptedMasterKey: false,
 			MasterPub:          masterPubKey.String(),
-			Coin:               iwallet.CtTestnetMock,
+			Coin:               iwallet.CtMock,
 			BestBlockHeight:    0,
 			BestBlockID:        "0000000000000000000000000000000000000000000000000000000000000000",
 		})
@@ -48,9 +48,9 @@ func newTestChain() (*ChainManager, *MockChainClient, error) {
 		return nil, nil, err
 	}
 
-	keychain, err := NewKeychain(db, iwallet.CtTestnetMock, func(key *hd.ExtendedKey) (iwallet.Address, error) {
+	keychain, err := NewKeychain(db, iwallet.CtMock, func(key *hd.ExtendedKey) (iwallet.Address, error) {
 		h := sha256.Sum256([]byte(key.String()))
-		return iwallet.NewAddress(hex.EncodeToString(h[:]), iwallet.CtTestnetMock), nil
+		return iwallet.NewAddress(hex.EncodeToString(h[:]), iwallet.CtMock), nil
 	})
 	if err != nil {
 		return nil, nil, err
@@ -64,7 +64,7 @@ func newTestChain() (*ChainManager, *MockChainClient, error) {
 		Client:             client,
 		DB:                 db,
 		Keychain:           keychain,
-		CoinType:           iwallet.CtTestnetMock,
+		CoinType:           iwallet.CtMock,
 		Logger:             log,
 		TxSubscriptionChan: nil,
 		EventBus:           NewBus(),
@@ -230,7 +230,7 @@ func TestChainManager_ScanAndUpdate(t *testing.T) {
 
 	var savedTxs []database.TransactionRecord
 	err = chain.db.View(func(tx database.Tx) error {
-		return tx.Read().Where("coin=?", iwallet.CtTestnetMock).Find(&savedTxs).Error
+		return tx.Read().Where("coin=?", iwallet.CtMock).Find(&savedTxs).Error
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -255,7 +255,7 @@ func TestChainManager_ScanAndUpdate(t *testing.T) {
 
 	var savedTxs2 []database.TransactionRecord
 	err = chain.db.View(func(tx database.Tx) error {
-		return tx.Read().Where("coin=?", iwallet.CtTestnetMock).Find(&savedTxs2).Error
+		return tx.Read().Where("coin=?", iwallet.CtMock).Find(&savedTxs2).Error
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -290,7 +290,7 @@ func TestChainManager_ScanAndUpdate(t *testing.T) {
 
 	var utxos []database.UtxoRecord
 	err = chain.db.View(func(tx database.Tx) error {
-		return tx.Read().Where("coin=?", iwallet.CtTestnetMock).Find(&utxos).Error
+		return tx.Read().Where("coin=?", iwallet.CtMock).Find(&utxos).Error
 	})
 	if err != nil {
 		t.Fatal(err)
