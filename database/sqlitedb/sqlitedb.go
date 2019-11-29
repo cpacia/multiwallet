@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	dbName = "multiwallet.db"
+	DatabaseName = "multiwallet.db"
 )
 
 var ErrReadOnly = errors.New("tx is read only")
@@ -25,7 +25,7 @@ type DB struct {
 
 // NewSqliteDB instantiates a new db which satisfies the Database interface.
 func NewSqliteDB(dataDir string) (database.Database, error) {
-	db, err := gorm.Open("sqlite3", path.Join(dataDir, dbName))
+	db, err := gorm.Open("sqlite3", path.Join(dataDir, DatabaseName))
 	if err != nil {
 		return nil, err
 	}

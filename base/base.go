@@ -110,11 +110,6 @@ func (w *WalletBase) WalletExists() bool {
 // If the wallet does not implement WalletCrypter then pw will be
 // nil. Otherwise it should be used to encrypt the private keys.
 func (w *WalletBase) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time.Time) error {
-	_, err := os.Stat(w.DataDir)
-	if !os.IsNotExist(err) {
-		return fmt.Errorf("wallet for %s already exists", w.CoinType.CurrencyCode())
-	}
-
 	xpub, err := xpriv.Neuter()
 	if err != nil {
 		return err
@@ -123,6 +118,16 @@ func (w *WalletBase) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time
 	w.DB, err = sqlitedb.NewSqliteDB(w.DataDir)
 	if err != nil {
 		return err
+	}
+
+	err = w.DB.View(func(tx database.Tx) error {
+		var rec database.CoinRecord
+		return tx.Read().Where("coin = ?", w.CoinType.CurrencyCode()).Find(&rec).Error
+	})
+	if err != nil && !gorm.IsRecordNotFoundError(err) {
+		return err
+	} else if err == nil {
+		return fmt.Errorf("wallet already exists for coin %s", w.CoinType.CurrencyCode())
 	}
 
 	return w.DB.Update(func(tx database.Tx) error {
