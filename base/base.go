@@ -14,7 +14,6 @@ import (
 	"github.com/gcash/bchd/wire"
 	"github.com/jinzhu/gorm"
 	"github.com/op/go-logging"
-	"os"
 	"strings"
 	"time"
 )
@@ -89,8 +88,22 @@ func (w *WalletBase) Begin() (iwallet.Tx, error) {
 // WalletExists should return whether the wallet exits or has been
 // initialized.
 func (w *WalletBase) WalletExists() bool {
-	_, err := os.Stat(w.DataDir)
-	return !os.IsNotExist(err)
+	if w.DB == nil {
+		var err error
+		w.DB, err = sqlitedb.NewSqliteDB(w.DataDir)
+		if err != nil {
+			return false
+		}
+
+		if err := database.InitializeDatabase(w.DB); err != nil {
+			return false
+		}
+	}
+	err := w.DB.View(func(tx database.Tx) error {
+		var rec database.CoinRecord
+		return tx.Read().Where("coin = ?", w.CoinType.CurrencyCode()).Find(&rec).Error
+	})
+	return err == nil
 }
 
 // CreateWallet should initialize the wallet. This will be called by
