@@ -104,7 +104,11 @@ func (w *BitcoinCashWallet) EstimateSpendFee(amount iwallet.Amount, feeLevel iwa
 	amt := iwallet.NewAmount(0)
 	err := w.DB.Update(func(dbtx database.Tx) error {
 		// Since this is an estimate we can use a dummy output address. Let's use a long one so we don't under estimate.
-		tx, err := w.buildTx(dbtx, amount.Int64(), iwallet.NewAddress("qpf464w2g36kyklq9shvyjk9lvuf6ph7jv3k8qpq0m", iwallet.CtBitcoinCash), feeLevel)
+		addrStr := "qzc3v2xhklaa7wzfjha9lut4e0ytj6z6rypk6fce4m"
+		if w.testnet {
+			addrStr = "mkWqVHGbfpznuu3JpPoXfCnHrhoekJLUGu"
+		}
+		tx, err := w.buildTx(dbtx, amount.Int64(), iwallet.NewAddress(addrStr, iwallet.CtBitcoinCash), feeLevel)
 		if err != nil {
 			return err
 		}
