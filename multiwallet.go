@@ -59,8 +59,8 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 	}
 
 	multiwallet := make(map[iwallet.CoinType]iwallet.Wallet)
-	for _, walletCfg := range cfg.Wallets {
-		switch walletCfg.CoinType {
+	for _, coinType := range cfg.Wallets {
+		switch coinType {
 		case iwallet.CtBitcoinCash:
 			clientUrl := "bchd.greyh.at:8335"
 			if cfg.UseTestnet {
@@ -76,10 +76,10 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 				return nil, err
 			}
 
-			multiwallet[walletCfg.CoinType] = w
+			multiwallet[coinType] = w
 
 		default:
-			return nil, fmt.Errorf("a wallet implementation for %s does not exist", walletCfg.CoinType.CurrencyCode())
+			return nil, fmt.Errorf("a wallet implementation for %s does not exist", coinType.CurrencyCode())
 		}
 	}
 
