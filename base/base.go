@@ -483,12 +483,9 @@ func (w *WalletBase) Unlock(pw []byte, howLong time.Duration) error {
 // GatherCoins returns the full list of spendable coins in the wallet along
 // with the key needed to spend. The wallet must be unlocked to use this
 // function.
-func (w *WalletBase) GatherCoins() (map[coinset.Coin]*hd.ExtendedKey, error) {
+func (w *WalletBase) GatherCoins(dbtx database.Tx) (map[coinset.Coin]*hd.ExtendedKey, error) {
 	var utxoRecords []database.UtxoRecord
-	err := w.DB.View(func(dbtx database.Tx) error {
-		return dbtx.Read().Where("coin = ?", w.CoinType.CurrencyCode()).Find(&utxoRecords).Error
-	})
-	if err != nil {
+	if err := dbtx.Read().Where("coin = ?", w.CoinType.CurrencyCode()).Find(&utxoRecords).Error; err != nil {
 		return nil, err
 	}
 
@@ -519,7 +516,7 @@ func (w *WalletBase) GatherCoins() (map[coinset.Coin]*hd.ExtendedKey, error) {
 			continue
 		}
 
-		key, err := w.Keychain.KeyForAddress(addr, nil)
+		key, err := w.Keychain.KeyForAddress(dbtx, addr, nil)
 		if err != nil {
 			continue
 		}

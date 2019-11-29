@@ -106,3 +106,10 @@ type UtxoRecord struct {
 	Address   string
 	Coin      string
 }
+
+type UnconfirmedTransaction struct {
+	Txid      string `gorm:"primary_key;unique;not null"`
+	TxBytes   []byte
+	Timestamp time.Time
+	Coin      string
+}

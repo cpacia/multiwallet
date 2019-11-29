@@ -398,6 +398,16 @@ func (kc *Keychain) CurrentAddress(change bool) (iwallet.Address, error) {
 	return record.Address(), nil
 }
 
+// CurrentAddressWithTx returns the first unused address using an open database transasction.
+func (kc *Keychain) CurrentAddressWithTx(dbtx database.Tx, change bool) (iwallet.Address, error) {
+	var record database.AddressRecord
+	err := dbtx.Read().Order("key_index asc").Where("coin=?", kc.coinType.CurrencyCode()).Where("used=?", false).Where("change=?", change).First(&record).Error
+	if err != nil {
+		return iwallet.Address{}, err
+	}
+	return record.Address(), nil
+}
+
 // NewAddress returns a new, never before used address.
 func (kc *Keychain) NewAddress(change bool) (iwallet.Address, error) {
 	var address iwallet.Address
@@ -461,11 +471,9 @@ func (kc *Keychain) HasKey(addr iwallet.Address) (bool, error) {
 // encrypted then accountPrivKey may be nil and it will generate and return the key.
 // However, if the wallet is encrypted a unencrypted accountPrivKey must be passed in
 // so we can derive the correct child key.
-func (kc *Keychain) KeyForAddress(addr iwallet.Address, accountPrivKey *hd.ExtendedKey) (*hd.ExtendedKey, error) {
+func (kc *Keychain) KeyForAddress(dbtx database.Tx, addr iwallet.Address, accountPrivKey *hd.ExtendedKey) (*hd.ExtendedKey, error) {
 	var record database.AddressRecord
-	err := kc.db.View(func(tx database.Tx) error {
-		return tx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
-	})
+	err := dbtx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
 	if err != nil {
 		return nil, err
 	}
