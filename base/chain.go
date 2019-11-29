@@ -227,6 +227,7 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 				// Possible reorg detected. Trigger a rescan from genesis to make
 				// sure our state is up to date.
 				go func() {
+					cm.logger.Debugf("[%s] Possible reorg. Re-scanning transactions", cm.coinType.CurrencyCode())
 					errChan := make(chan error)
 					cm.msgChan <- &scanJob{
 						fromHeight: 0,
@@ -242,7 +243,7 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 			if cm.eventBus != nil {
 				cm.eventBus.Emit(&BlockReceivedEvent{})
 			}
-
+			cm.logger.Debugf("[%s] Block received at height %d", cm.coinType.CurrencyCode(), blockInfo.Height)
 		case <-cm.done:
 			transactionSub.Close()
 			blocksSub.Close()
@@ -364,7 +365,7 @@ func (cm *ChainManager) ScanTransactions(fromHeight uint64) {
 	defer close(errChan)
 
 	for {
-		cm.logger.Infof("[%s] Scanning transactions", cm.coinType.CurrencyCode())
+		cm.logger.Debugf("[%s] Scanning transactions", cm.coinType.CurrencyCode())
 		cm.msgChan <- &scanJob{
 			fromHeight: fromHeight,
 			errChan:    errChan,
@@ -454,6 +455,7 @@ func (cm *ChainManager) scanTransactions(addrs []iwallet.Address, fromHeight uin
 	if cm.eventBus != nil {
 		cm.eventBus.Emit(&ScanCompleteEvent{})
 	}
+	cm.logger.Debugf("[%s] Done scanning transactions", cm.coinType.CurrencyCode())
 	return nil
 }
 

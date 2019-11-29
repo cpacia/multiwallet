@@ -76,7 +76,7 @@ type WalletBase struct {
 
 	subscriptionChan chan *subscription
 
-	done chan struct{}
+	Done chan struct{}
 }
 
 // Begin returns a new database transaction. A transaction must only be used
@@ -222,7 +222,7 @@ func (w *WalletBase) OpenWallet() error {
 				for _, sub := range txSubs {
 					sub <- tx
 				}
-			case <-w.done:
+			case <-w.Done:
 				return
 			}
 		}
@@ -241,7 +241,7 @@ func (w *WalletBase) CloseWallet() error {
 	if err := w.ChainClient.Close(); err != nil {
 		return err
 	}
-	close(w.done)
+	close(w.Done)
 	return nil
 }
 

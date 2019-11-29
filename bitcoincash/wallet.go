@@ -63,6 +63,7 @@ func NewBitcoinCashWallet(cfg *base.WalletConfig) (*BitcoinCashWallet, error) {
 	w.DataDir = cfg.DataDir
 	w.Logger = cfg.Logger
 	w.CoinType = iwallet.CtBitcoinCash
+	w.Done = make(chan struct{})
 	w.AddressFunc = func(key *btchd.ExtendedKey) (iwallet.Address, error) {
 		newKey, err := hdkeychain.NewKeyFromString(key.String())
 		if err != nil {
