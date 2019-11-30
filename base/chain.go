@@ -8,6 +8,8 @@ import (
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/jinzhu/gorm"
 	"github.com/op/go-logging"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"sync"
 	"time"
 )
@@ -118,7 +120,7 @@ func (cm *ChainManager) Start() {
 		cm.eventBus.Emit(&ChainStartedEvent{})
 	}
 
-	cm.logger.Debugf("[%s] Chain initialized at height: %d", cm.coinType.CurrencyCode(), fromHeight)
+	cm.logger.Debugf("[%s] Chain initialized at height: %d", cm.coinType, fromHeight)
 	go cm.chainHandler(transactionSub, blocksSub)
 	go cm.ScanTransactions(fromHeight)
 }
@@ -174,12 +176,12 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 			case *saveJob:
 				newTxs, err := cm.saveTransactionsAndUtxos(msg.txs)
 				if err != nil {
-					cm.logger.Errorf("Error saving incoming transaction for coin %s: %s", cm.coinType, err)
+					cm.logger.Errorf("[%s] Error saving incoming transaction: %s", cm.coinType, err)
 				}
 				if newTxs > 0 {
 					addrs, err := cm.keychain.GetAddresses()
 					if err != nil {
-						cm.logger.Errorf("Error loading addresses for coin %s: %s", cm.coinType, err)
+						cm.logger.Errorf("[%s] Error loading address: %s", cm.coinType, err)
 					}
 					go func() {
 						cm.msgChan <- &updateAddrSubscription{addrs: addrs}
@@ -224,11 +226,11 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 
 			previousBest := cm.best
 			cm.best = blockInfo
-			if previousBest.BlockID.String() != blockInfo.BlockID.String() {
+			if previousBest.BlockID.String() != blockInfo.PrevBlock.String() {
 				// Possible reorg detected. Trigger a rescan from genesis to make
 				// sure our state is up to date.
 				go func() {
-					cm.logger.Debugf("[%s] Possible reorg. Re-scanning transactions", cm.coinType.CurrencyCode())
+					cm.logger.Debugf("[%s] Possible reorg. Re-scanning transactions", cm.coinType)
 					errChan := make(chan error)
 					cm.msgChan <- &scanJob{
 						fromHeight: 0,
@@ -237,14 +239,14 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 
 					err := <-errChan
 					if err != nil {
-						cm.logger.Errorf("Error scanning transactions after reorg detected, coin %s: %s", cm.coinType, err)
+						cm.logger.Errorf("[%s] Error scanning transactions after reorg detected: %s", cm.coinType, err)
 					}
 				}()
 			}
 			if cm.eventBus != nil {
 				cm.eventBus.Emit(&BlockReceivedEvent{})
 			}
-			cm.logger.Debugf("[%s] Block received at height: %d", cm.coinType.CurrencyCode(), blockInfo.Height)
+			cm.logger.Debugf("[%s] Block received at height: %d", cm.coinType, blockInfo.Height)
 		case <-cm.done:
 			transactionSub.Close()
 			blocksSub.Close()
@@ -306,7 +308,7 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 	inMainChain := true
 	if currentBestBlock.Height > 0 {
 		inMainChain, err = cm.client.IsBlockInMainChain(currentBestBlock.BlockID)
-		if err != nil {
+		if grpc.Code(err) != codes.NotFound {
 			return nil, nil, 0, err
 		}
 	}
@@ -321,17 +323,17 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 		return nil, nil, 0, err
 	}
 
-	transactionChan, err := cm.client.SubscribeTransactions(addrs)
+	transactionSub, err := cm.client.SubscribeTransactions(addrs)
 	if err != nil {
 		return nil, nil, 0, err
 	}
 
-	blocksChan, err := cm.client.SubscribeBlocks()
+	blocksSub, err := cm.client.SubscribeBlocks()
 	if err != nil {
 		return nil, nil, 0, err
 	}
 
-	return transactionChan, blocksChan, scanFrom, nil
+	return transactionSub, blocksSub, scanFrom, nil
 }
 
 // BestBlock returns the current best block for the chain.
@@ -366,7 +368,7 @@ func (cm *ChainManager) ScanTransactions(fromHeight uint64) {
 	defer close(errChan)
 
 	for {
-		cm.logger.Debugf("[%s] Scanning transactions", cm.coinType.CurrencyCode())
+		cm.logger.Debugf("[%s] Scanning transactions", cm.coinType)
 		cm.msgChan <- &scanJob{
 			fromHeight: fromHeight,
 			errChan:    errChan,
@@ -456,7 +458,7 @@ func (cm *ChainManager) scanTransactions(addrs []iwallet.Address, fromHeight uin
 	if cm.eventBus != nil {
 		cm.eventBus.Emit(&ScanCompleteEvent{})
 	}
-	cm.logger.Debugf("[%s] Done scanning transactions", cm.coinType.CurrencyCode())
+	cm.logger.Debugf("[%s] Done scanning transactions", cm.coinType)
 	return nil
 }
 
@@ -737,7 +739,7 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 	}
 
 	if numNew > 0 {
-		cm.logger.Infof("[%s] Detected %d new transactions", cm.coinType.CurrencyCode(), numNew)
+		cm.logger.Infof("[%s] Detected %d new transactions", cm.coinType, numNew)
 	}
 
 	return numNew, err

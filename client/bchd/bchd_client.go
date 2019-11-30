@@ -258,7 +258,6 @@ func (c *BchdClient) SubscribeBlocks() (*base.BlockSubscription, error) {
 		delete(c.blockSubs, id)
 		c.subMtx.Unlock()
 	}
-
 	go func() {
 		for {
 			blockNotf, err := stream.Recv()

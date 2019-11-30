@@ -64,7 +64,7 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 		case iwallet.CtBitcoinCash:
 			clientUrl := "bchd.greyh.at:8335"
 			if cfg.UseTestnet {
-				clientUrl = "testnet-bchd.greyh.at:18335"
+				clientUrl = "bchd-testnet.greyh.at:18335"
 			}
 			w, err := bitcoincash.NewBitcoinCashWallet(&base.WalletConfig{
 				Logger:    logger,
@@ -77,7 +77,6 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 			}
 
 			multiwallet[coinType] = w
-
 		default:
 			return nil, fmt.Errorf("a wallet implementation for %s does not exist", coinType.CurrencyCode())
 		}
