@@ -8,8 +8,6 @@ import (
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/jinzhu/gorm"
 	"github.com/op/go-logging"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"sync"
 	"time"
 )
@@ -308,7 +306,7 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 	inMainChain := true
 	if currentBestBlock.Height > 0 {
 		inMainChain, err = cm.client.IsBlockInMainChain(currentBestBlock.BlockID)
-		if err != nil && grpc.Code(err) != codes.NotFound {
+		if err != nil {
 			return nil, nil, 0, err
 		}
 	}

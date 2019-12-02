@@ -9,6 +9,7 @@ import (
 	"github.com/gcash/bchd/chaincfg/chainhash"
 	"github.com/gcash/bchd/wire"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"math/rand"
 	"sync"
@@ -138,7 +139,9 @@ func (c *BchdClient) IsBlockInMainChain(id iwallet.BlockID) (bool, error) {
 			Hash: blockHash.CloneBytes(),
 		},
 	})
-	if err != nil {
+	if grpc.Code(err) == codes.NotFound {
+		return false, nil
+	} else if err != nil {
 		return false, err
 	}
 	return blockInfo.Info.Confirmations > 0, nil
@@ -262,6 +265,9 @@ func (c *BchdClient) SubscribeBlocks() (*base.BlockSubscription, error) {
 		for {
 			blockNotf, err := stream.Recv()
 			if err != nil {
+				return
+			}
+			if blockNotf.Type != pb.BlockNotification_CONNECTED {
 				return
 			}
 			info := blockNotf.GetBlockInfo()
