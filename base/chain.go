@@ -308,7 +308,7 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 	inMainChain := true
 	if currentBestBlock.Height > 0 {
 		inMainChain, err = cm.client.IsBlockInMainChain(currentBestBlock.BlockID)
-		if grpc.Code(err) != codes.NotFound {
+		if err != nil && grpc.Code(err) != codes.NotFound {
 			return nil, nil, 0, err
 		}
 	}
