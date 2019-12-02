@@ -232,9 +232,7 @@ func (w *WalletBase) OpenWallet() error {
 
 // CloseWallet will be called when OpenBazaar shuts down.
 func (w *WalletBase) CloseWallet() error {
-	if err := w.ChainManager.Stop(); err != nil {
-		return err
-	}
+	w.ChainManager.Stop()
 	if err := w.DB.Close(); err != nil {
 		return err
 	}

@@ -126,20 +126,8 @@ func (cm *ChainManager) Start() {
 }
 
 // Stop shuts down the ChainManager
-func (cm *ChainManager) Stop() error {
+func (cm *ChainManager) Stop() {
 	close(cm.done)
-
-	return cm.db.Update(func(tx database.Tx) error {
-		var rec database.CoinRecord
-		if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&rec).Error; err != nil {
-			return err
-		}
-
-		rec.BestBlockHeight = cm.best.Height
-		rec.BestBlockID = cm.best.BlockID.String()
-
-		return tx.Save(&rec)
-	})
 }
 
 // chainHandler is the main loop for the ChainManager. It guards against concurrent
@@ -226,6 +214,18 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 
 			previousBest := cm.best
 			cm.best = blockInfo
+			err := cm.db.Update(func(tx database.Tx) error {
+				var rec database.CoinRecord
+				if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&rec).Error; err != nil {
+					return err
+				}
+				rec.BestBlockHeight = cm.best.Height
+				rec.BestBlockID = cm.best.BlockID.String()
+				return tx.Save(&rec)
+			})
+			if err != nil {
+				cm.logger.Errorf("[%s] Error updating database with new block height: %s", cm.coinType, err)
+			}
 			if previousBest.BlockID.String() != blockInfo.PrevBlock.String() {
 				// Possible reorg detected. Trigger a rescan from genesis to make
 				// sure our state is up to date.
