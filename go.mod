@@ -6,7 +6,7 @@ require (
 	github.com/btcsuite/btcd v0.0.0-20190629003639-c26ffa870fd8
 	github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d
 	github.com/cenkalti/backoff v2.2.1+incompatible
-	github.com/cpacia/wallet-interface v0.0.0-20191129163644-3b6139725372
+	github.com/cpacia/wallet-interface v0.0.0-20191203023315-fbe84fec42e4
 	github.com/gcash/bchd v0.15.1
 	github.com/gcash/bchutil v0.0.0-20191012211144-98e73ec336ba
 	github.com/gcash/bchwallet v0.8.2

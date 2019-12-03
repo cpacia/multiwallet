@@ -711,6 +711,7 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 			savedUtxoMap[utxo.Outpoint] = true
 		}
 
+		// Delete any utxos in the DB but not in our map.
 		for outpoint := range savedUtxoMap {
 			if _, ok := utxos[outpoint]; !ok {
 				if err := dbtx.Delete("outpoint", outpoint, &database.UtxoRecord{}); err != nil {

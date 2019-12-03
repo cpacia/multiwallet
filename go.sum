@@ -38,6 +38,8 @@ github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=
 github.com/cpacia/wallet-interface v0.0.0-20191129163644-3b6139725372 h1:UvHncb/DARIwoOIP6luexbZt3PKTJsiPhvRb111HzBI=
 github.com/cpacia/wallet-interface v0.0.0-20191129163644-3b6139725372/go.mod h1:ax38EmXdy/eZ9dznU/Swn8qfrsUZtVSnrsSxmcq1xYY=
+github.com/cpacia/wallet-interface v0.0.0-20191203023315-fbe84fec42e4 h1:IUxL/wHaU/VgRZFVils7SduWVQjT8V8ObYTMZPWNbVc=
+github.com/cpacia/wallet-interface v0.0.0-20191203023315-fbe84fec42e4/go.mod h1:ax38EmXdy/eZ9dznU/Swn8qfrsUZtVSnrsSxmcq1xYY=
 github.com/davecgh/go-spew v0.0.0-20171005155431-ecdeabc65495/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
