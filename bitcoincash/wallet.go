@@ -60,7 +60,7 @@ func NewBitcoinCashWallet(cfg *base.WalletConfig) (*BitcoinCashWallet, error) {
 	}
 
 	w.ChainClient = chainClient
-	w.DataDir = cfg.DataDir
+	w.DB = cfg.DB
 	w.Logger = cfg.Logger
 	w.CoinType = iwallet.CtBitcoinCash
 	w.Done = make(chan struct{})

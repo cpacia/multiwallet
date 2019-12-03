@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"github.com/cpacia/multiwallet/base"
 	"github.com/cpacia/multiwallet/bitcoincash"
+	"github.com/cpacia/multiwallet/database"
+	"github.com/cpacia/multiwallet/database/sqlitedb"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/natefinch/lumberjack"
 	"github.com/op/go-logging"
@@ -58,6 +60,15 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 		logger.SetBackend(leveledBackend)
 	}
 
+	db, err := sqlitedb.NewSqliteDB(cfg.DataDir)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := database.InitializeDatabase(db); err != nil {
+		return nil, err
+	}
+
 	multiwallet := make(map[iwallet.CoinType]iwallet.Wallet)
 	for _, coinType := range cfg.Wallets {
 		switch coinType {
@@ -68,7 +79,7 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 			}
 			w, err := bitcoincash.NewBitcoinCashWallet(&base.WalletConfig{
 				Logger:    logger,
-				DataDir:   cfg.DataDir,
+				DB:        db,
 				ClientUrl: clientUrl,
 				Testnet:   cfg.UseTestnet,
 			})

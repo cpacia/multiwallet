@@ -9,7 +9,6 @@ import (
 	hd "github.com/btcsuite/btcutil/hdkeychain"
 	expbackoff "github.com/cenkalti/backoff"
 	"github.com/cpacia/multiwallet/database"
-	"github.com/cpacia/multiwallet/database/sqlitedb"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/gcash/bchd/wire"
 	"github.com/jinzhu/gorm"
@@ -21,7 +20,7 @@ import (
 // WalletConfig is struct that can be used pass into the constructor
 // for each coin's wallet.
 type WalletConfig struct {
-	DataDir   string
+	DB        database.Database
 	Logger    *logging.Logger
 	Testnet   bool
 	ClientUrl string
@@ -64,6 +63,10 @@ type subscription struct {
 	txSub    chan iwallet.Transaction
 }
 
+// WalletBase is a base class that wallets can extended by the individual
+// wallets. It contains a little over half the interface methods so the only
+// remaining methods that need to be implemented by each coin's package are
+// the method's specific to signing and building transactions.
 type WalletBase struct {
 	ChainManager *ChainManager
 	ChainClient  ChainClient
@@ -71,7 +74,6 @@ type WalletBase struct {
 	DB           database.Database
 	CoinType     iwallet.CoinType
 	Logger       *logging.Logger
-	DataDir      string
 	AddressFunc  func(key *hd.ExtendedKey) (iwallet.Address, error)
 
 	subscriptionChan chan *subscription
@@ -88,17 +90,6 @@ func (w *WalletBase) Begin() (iwallet.Tx, error) {
 // WalletExists should return whether the wallet exits or has been
 // initialized.
 func (w *WalletBase) WalletExists() bool {
-	if w.DB == nil {
-		var err error
-		w.DB, err = sqlitedb.NewSqliteDB(w.DataDir)
-		if err != nil {
-			return false
-		}
-
-		if err := database.InitializeDatabase(w.DB); err != nil {
-			return false
-		}
-	}
 	err := w.DB.View(func(tx database.Tx) error {
 		var rec database.CoinRecord
 		return tx.Read().Where("coin = ?", w.CoinType.CurrencyCode()).Find(&rec).Error
@@ -128,15 +119,6 @@ func (w *WalletBase) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time
 		return err
 	}
 
-	w.DB, err = sqlitedb.NewSqliteDB(w.DataDir)
-	if err != nil {
-		return err
-	}
-
-	if err := database.InitializeDatabase(w.DB); err != nil {
-		return err
-	}
-
 	err = w.DB.View(func(tx database.Tx) error {
 		var rec database.CoinRecord
 		return tx.Read().Where("coin = ?", w.CoinType.CurrencyCode()).Find(&rec).Error
@@ -163,17 +145,6 @@ func (w *WalletBase) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time
 // Open wallet will be called each time on OpenBazaar start. It
 // will also be called after CreateWallet().
 func (w *WalletBase) OpenWallet() error {
-	if w.DB == nil {
-		var err error
-		w.DB, err = sqlitedb.NewSqliteDB(w.DataDir)
-		if err != nil {
-			return err
-		}
-
-		if err := database.InitializeDatabase(w.DB); err != nil {
-			return err
-		}
-	}
 	keychain, err := NewKeychain(w.DB, w.CoinType, w.AddressFunc)
 	if err != nil {
 		return err

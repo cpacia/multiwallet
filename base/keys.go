@@ -13,6 +13,7 @@ import (
 	"github.com/jinzhu/gorm"
 	"golang.org/x/crypto/pbkdf2"
 	"io"
+	"sync"
 	"time"
 )
 
@@ -44,6 +45,8 @@ type Keychain struct {
 	externalPubkey  *hd.ExtendedKey
 
 	coinType iwallet.CoinType
+
+	mtx sync.RWMutex
 
 	addrFunc func(key *hd.ExtendedKey) (iwallet.Address, error)
 }
@@ -103,6 +106,7 @@ func NewKeychain(db database.Database, coinType iwallet.CoinType, addressFunc fu
 		externalPubkey:  externalPubkey,
 		coinType:        coinType,
 		addrFunc:        addressFunc,
+		mtx:             sync.RWMutex{},
 	}
 	if err := kc.ExtendKeychain(); err != nil {
 		return nil, err
@@ -113,6 +117,9 @@ func NewKeychain(db database.Database, coinType iwallet.CoinType, addressFunc fu
 // SetPassphase encrypts the master private key in the database and
 // deletes the internal and external private keys from memory.
 func (kc *Keychain) SetPassphase(pw []byte) error {
+	kc.mtx.Lock()
+	defer kc.mtx.Unlock()
+
 	var (
 		salt       = make([]byte, 32)
 		rounds     = defaultKdfRounds
@@ -170,6 +177,9 @@ func (kc *Keychain) SetPassphase(pw []byte) error {
 // ChangePassphrase will change the passphrase used to encrypt the
 // master private key.
 func (kc *Keychain) ChangePassphrase(old, new []byte) error {
+	kc.mtx.Lock()
+	defer kc.mtx.Unlock()
+
 	if !kc.IsEncrypted() {
 		return errors.New("wallet is not encrypted")
 	}
@@ -255,6 +265,9 @@ func (kc *Keychain) ChangePassphrase(old, new []byte) error {
 // RemovePassphrase removes encryption from the master key and puts the
 // external and internal keys back in memory.
 func (kc *Keychain) RemovePassphrase(pw []byte) error {
+	kc.mtx.Lock()
+	defer kc.mtx.Unlock()
+
 	if !kc.IsEncrypted() {
 		return errors.New("wallet is not encrypted")
 	}
@@ -311,6 +324,9 @@ func (kc *Keychain) RemovePassphrase(pw []byte) error {
 // Unlock will dcrypt the master key and store the external and internal
 // private keys in memory for howLong.
 func (kc *Keychain) Unlock(pw []byte, howLong time.Duration) error {
+	kc.mtx.Lock()
+	defer kc.mtx.Unlock()
+
 	if !kc.IsEncrypted() {
 		return errors.New("wallet is not encrypted")
 	}
@@ -359,6 +375,9 @@ func (kc *Keychain) Unlock(pw []byte, howLong time.Duration) error {
 	}
 
 	time.AfterFunc(howLong, func() {
+		kc.mtx.Lock()
+		defer kc.mtx.Unlock()
+
 		kc.externalPrivkey = nil
 		kc.internalPrivkey = nil
 	})
@@ -367,6 +386,9 @@ func (kc *Keychain) Unlock(pw []byte, howLong time.Duration) error {
 
 // IsEncrypted returns whether or not this keychain is encrypted.
 func (kc *Keychain) IsEncrypted() bool {
+	kc.mtx.RLock()
+	defer kc.mtx.RUnlock()
+
 	return kc.internalPrivkey == nil || kc.externalPrivkey == nil
 }
 
@@ -472,6 +494,9 @@ func (kc *Keychain) HasKey(addr iwallet.Address) (bool, error) {
 // However, if the wallet is encrypted a unencrypted accountPrivKey must be passed in
 // so we can derive the correct child key.
 func (kc *Keychain) KeyForAddress(dbtx database.Tx, addr iwallet.Address, accountPrivKey *hd.ExtendedKey) (*hd.ExtendedKey, error) {
+	kc.mtx.Lock()
+	defer kc.mtx.Unlock()
+
 	var record database.AddressRecord
 	err := dbtx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
 	if err != nil {

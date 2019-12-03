@@ -10,6 +10,7 @@ import (
 	"github.com/cpacia/multiwallet/database/sqlitedb"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/op/go-logging"
+	"strings"
 	"testing"
 	"time"
 )
@@ -41,7 +42,7 @@ func newTestChain() (*ChainManager, *MockChainClient, error) {
 			MasterPub:          masterPubKey.String(),
 			Coin:               iwallet.CtMock,
 			BestBlockHeight:    0,
-			BestBlockID:        "0000000000000000000000000000000000000000000000000000000000000000",
+			BestBlockID:        strings.Repeat("0", 64),
 		})
 	})
 	if err != nil {
@@ -136,9 +137,7 @@ func TestChainManager_Stop(t *testing.T) {
 		t.Fatal("Timed out waiting to process block")
 	}
 
-	if err := chain.Stop(); err != nil {
-		t.Fatal(err)
-	}
+	chain.Stop()
 
 	var record database.CoinRecord
 	err = chain.db.View(func(tx database.Tx) error {
