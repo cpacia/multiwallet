@@ -256,10 +256,10 @@ func (c *BchdClient) SubscribeBlocks() (*base.BlockSubscription, error) {
 
 	sub.Close = func() {
 		stream.CloseSend()
-		close(sub.Out)
 		c.subMtx.Lock()
 		delete(c.blockSubs, id)
 		c.subMtx.Unlock()
+		close(sub.Out)
 	}
 	go func() {
 		for {
@@ -303,12 +303,6 @@ func (c *BchdClient) Close() error {
 	c.subMtx.Lock()
 	defer c.subMtx.Unlock()
 
-	for _, sub := range c.txSubs {
-		close(sub.Out)
-	}
-	for _, sub := range c.blockSubs {
-		close(sub.Out)
-	}
 	return c.conn.Close()
 }
 

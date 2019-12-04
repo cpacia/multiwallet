@@ -377,6 +377,18 @@ func (cm *ChainManager) ScanTransactions(fromHeight uint64) {
 			cm.logger.Warningf("[%s] Scan job submitted with scan already in progress", cm.coinType)
 			return
 		} else if err == nil {
+			err := cm.db.Update(func(tx database.Tx) error {
+				var rec database.CoinRecord
+				if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&rec).Error; err != nil {
+					return err
+				}
+				rec.BestBlockHeight = cm.best.Height
+				rec.BestBlockID = cm.best.BlockID.String()
+				return tx.Save(&rec)
+			})
+			if err != nil {
+				cm.logger.Errorf("[%s] Error updating database with new block height: %s", cm.coinType, err)
+			}
 			return
 		}
 

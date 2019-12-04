@@ -580,15 +580,18 @@ func (kc *Keychain) extendKeychain(tx database.Tx) error {
 }
 
 func (kc *Keychain) createNewKeys(dbtx database.Tx, change bool, numKeys int) error {
-	var record database.AddressRecord
+	var (
+		record        database.AddressRecord
+		nextIndex     = record.KeyIndex + 1
+		generatedKeys = 0
+	)
 	err := dbtx.Read().Order("key_index desc").Where("coin=?", kc.coinType.CurrencyCode()).Where("used=?", true).Where("change=?", change).First(&record).Error
 	if err != nil && !gorm.IsRecordNotFoundError(err) {
 		return err
 	}
-	var (
-		nextIndex     = record.KeyIndex + 1
-		generatedKeys = 0
-	)
+	if gorm.IsRecordNotFoundError(err) {
+		nextIndex = 0
+	}
 	for generatedKeys < numKeys {
 		// There is a small possibility bip32 keys can be invalid. The procedure in such cases
 		// is to discard the key and derive the next one. This loop will continue until a valid key
