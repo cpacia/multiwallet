@@ -407,7 +407,23 @@ func (w *WalletBase) WatchAddress(tx iwallet.Tx, addr iwallet.Address) error {
 	dbtx := tx.(*DBTx)
 	dbtx.OnCommit = func() error {
 		return w.DB.Update(func(tx database.Tx) error {
-			err := tx.Save(&database.WatchedAddressRecord{
+			var addrRecord database.AddressRecord
+			err := tx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Where("addr=?", addr.String()).First(&addrRecord).Error
+			if err == nil {
+				// This is a wallet address. Likely from
+				// an address request order.
+				return nil
+			}
+
+			var watchedRecord database.WatchedAddressRecord
+			err = tx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Where("addr=?", addr.String()).First(&watchedRecord).Error
+			if err == nil {
+				// We've previously saved this address before.
+				// No need to do anything new.
+				return nil
+			}
+
+			err = tx.Save(&database.WatchedAddressRecord{
 				Addr: addr.String(),
 				Coin: w.CoinType.CurrencyCode(),
 			})
