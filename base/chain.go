@@ -28,6 +28,7 @@ type ChainConfig struct {
 type ChainManager struct {
 	client           ChainClient
 	best             iwallet.BlockInfo
+	bestMtx          sync.RWMutex
 	coinType         iwallet.CoinType
 	keychain         *Keychain
 	db               database.Database
@@ -51,6 +52,7 @@ func NewChainManager(config *ChainConfig) *ChainManager {
 		client:           config.Client,
 		keychain:         config.Keychain,
 		coinType:         config.CoinType,
+		bestMtx:          sync.RWMutex{},
 		logger:           config.Logger,
 		db:               config.DB,
 		unconfirmedTxs:   make(map[iwallet.TransactionID]iwallet.Transaction),
@@ -74,10 +76,6 @@ type saveJob struct {
 	txs []iwallet.Transaction
 }
 
-type bestBlockReq struct {
-	infoChan chan iwallet.BlockInfo
-}
-
 type addUnconfirmed struct {
 	tx iwallet.Transaction
 }
@@ -96,31 +94,75 @@ type updateAddrSubscription struct {
 
 // Start will begin the ChainManager process and sync up the wallet.
 // This should be run in a new goroutine.
-func (cm *ChainManager) Start() {
-	// Here we initialize the chain, including making a couple API calls
-	// to set the best height and hash. If any of that fails, we will
-	// recursively call this function again with an exponential backoff.
-	transactionSub, blocksSub, fromHeight, err := cm.initializeChain()
-	if err != nil {
-		backoffDuration := cm.backoff.NextBackOff()
-		cm.logger.Errorf("[%s] Error initializing chain: %s. Retrying in %s", cm.coinType, err, backoffDuration)
-		select {
-		case <-time.After(backoffDuration):
-			go cm.Start()
-			return
-		case <-cm.done:
-			return
+func (cm *ChainManager) Start() error {
+	var (
+		currentBestBlock iwallet.BlockInfo
+		unconfirmed      []database.TransactionRecord
+		watchAddresses   []database.WatchedAddressRecord
+	)
+
+	err := cm.db.View(func(tx database.Tx) error {
+		var record database.CoinRecord
+		if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).First(&record).Error; err != nil {
+			return err
 		}
-	}
-	cm.backoff.Reset()
+		currentBestBlock = iwallet.BlockInfo{
+			BlockID: iwallet.BlockID(record.BestBlockID),
+			Height:  record.BestBlockHeight,
+		}
 
-	if cm.eventBus != nil {
-		cm.eventBus.Emit(&ChainStartedEvent{})
-	}
+		err := tx.Read().Where("coin=?", cm.coinType).Find(&watchAddresses).Error
+		if err != nil && !gorm.IsRecordNotFoundError(err) {
+			return err
+		}
 
-	cm.logger.Debugf("[%s] Chain initialized at height: %d", cm.coinType, fromHeight)
-	go cm.chainHandler(transactionSub, blocksSub)
-	go cm.ScanTransactions(fromHeight)
+		err = tx.Read().Where("coin=?", cm.coinType).Where("block_height=?", 0).Find(&unconfirmed).Error
+		if err != nil && !gorm.IsRecordNotFoundError(err) {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	addrs, err := cm.keychain.GetAddresses()
+	if err != nil {
+		return err
+	}
+	go func() {
+		var (
+			transactionSub *TransactionSubscription
+			blocksSub      *BlockSubscription
+			fromHeight     uint64
+		)
+		for {
+			// Here we initialize the chain, including making a couple API calls
+			// to set the best height and hash. If any of that fails, we will
+			// recursively call this function again with an exponential backoff.
+			transactionSub, blocksSub, fromHeight, err = cm.initializeChain(currentBestBlock, unconfirmed, addrs, watchAddresses)
+			if err != nil {
+				backoffDuration := cm.backoff.NextBackOff()
+				cm.logger.Errorf("[%s] Error initializing chain: %s. Retrying in %s", cm.coinType, err, backoffDuration)
+				select {
+				case <-time.After(backoffDuration):
+					continue
+				case <-cm.done:
+					return
+				}
+			}
+			break
+		}
+		cm.backoff.Reset()
+
+		if cm.eventBus != nil {
+			cm.eventBus.Emit(&ChainStartedEvent{})
+		}
+
+		cm.logger.Debugf("[%s] Chain initialized at height: %d", cm.coinType, fromHeight)
+		go cm.chainHandler(transactionSub, blocksSub)
+		go cm.ScanTransactions(fromHeight)
+	}()
+	return nil
 }
 
 // Stop shuts down the ChainManager
@@ -180,9 +222,6 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 			case *removeUnconfirmed:
 				delete(cm.unconfirmedTxs, msg.txid)
 
-			case *bestBlockReq:
-				msg.infoChan <- cm.best
-
 			case *addWatchOnly:
 				cm.watchOnly = append(cm.watchOnly, msg.addr)
 				transactionSub.Subscribe <- msg.addr
@@ -209,9 +248,10 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 
 				go cm.updateUnconfirmed(unconfirmed)
 			}
-
+			cm.bestMtx.Lock()
 			previousBest := cm.best
 			cm.best = blockInfo
+			cm.bestMtx.Unlock()
 			err := cm.db.Update(func(tx database.Tx) error {
 				var rec database.CoinRecord
 				if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&rec).Error; err != nil {
@@ -253,37 +293,7 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 	}
 }
 
-func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubscription, uint64, error) {
-	var (
-		currentBestBlock iwallet.BlockInfo
-		unconfirmed      []database.TransactionRecord
-		watchAddresses   []database.WatchedAddressRecord
-	)
-	err := cm.db.View(func(tx database.Tx) error {
-		var record database.CoinRecord
-		if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).First(&record).Error; err != nil {
-			return err
-		}
-		currentBestBlock = iwallet.BlockInfo{
-			BlockID: iwallet.BlockID(record.BestBlockID),
-			Height:  record.BestBlockHeight,
-		}
-
-		err := tx.Read().Where("coin=?", cm.coinType).Find(&watchAddresses).Error
-		if err != nil && !gorm.IsRecordNotFoundError(err) {
-			return err
-		}
-
-		err = tx.Read().Where("coin=?", cm.coinType).Where("block_height=?", 0).Find(&unconfirmed).Error
-		if err != nil && !gorm.IsRecordNotFoundError(err) {
-			return err
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, nil, 0, err
-	}
-
+func (cm *ChainManager) initializeChain(currentBestBlock iwallet.BlockInfo, unconfirmed []database.TransactionRecord, addrs []iwallet.Address, watchAddresses []database.WatchedAddressRecord) (*TransactionSubscription, *BlockSubscription, uint64, error) {
 	for _, uc := range unconfirmed {
 		tx, err := uc.Transaction()
 		if err != nil {
@@ -316,11 +326,6 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 		scanFrom = 0
 	}
 
-	addrs, err := cm.keychain.GetAddresses()
-	if err != nil {
-		return nil, nil, 0, err
-	}
-
 	transactionSub, err := cm.client.SubscribeTransactions(addrs)
 	if err != nil {
 		return nil, nil, 0, err
@@ -336,13 +341,10 @@ func (cm *ChainManager) initializeChain() (*TransactionSubscription, *BlockSubsc
 
 // BestBlock returns the current best block for the chain.
 func (cm *ChainManager) BestBlock() iwallet.BlockInfo {
-	infoChan := make(chan iwallet.BlockInfo)
-	defer close(infoChan)
+	cm.bestMtx.RLock()
+	defer cm.bestMtx.RUnlock()
 
-	cm.msgChan <- &bestBlockReq{infoChan: infoChan}
-
-	bestBlock := <-infoChan
-	return bestBlock
+	return cm.best
 }
 
 // AddWatchOnly adds a watch only address to track.

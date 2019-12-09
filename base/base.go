@@ -163,7 +163,9 @@ func (w *WalletBase) OpenWallet() error {
 	}
 
 	w.ChainManager = NewChainManager(config)
-	go w.ChainManager.Start()
+	if err := w.ChainManager.Start(); err != nil {
+		return err
+	}
 
 	blockSub, err := w.ChainClient.SubscribeBlocks()
 	if err != nil {
@@ -406,7 +408,7 @@ func checkIfStxoIsConfirmed(txid iwallet.TransactionID, txMap map[iwallet.Transa
 func (w *WalletBase) WatchAddress(tx iwallet.Tx, addr iwallet.Address) error {
 	dbtx := tx.(*DBTx)
 	dbtx.OnCommit = func() error {
-		return w.DB.Update(func(tx database.Tx) error {
+		err := w.DB.Update(func(tx database.Tx) error {
 			var addrRecord database.AddressRecord
 			err := tx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Where("addr=?", addr.String()).First(&addrRecord).Error
 			if err == nil {
@@ -430,9 +432,13 @@ func (w *WalletBase) WatchAddress(tx iwallet.Tx, addr iwallet.Address) error {
 			if err != nil {
 				return err
 			}
-			w.ChainManager.AddWatchOnly(addr)
 			return nil
 		})
+		if err != nil {
+			return err
+		}
+		w.ChainManager.AddWatchOnly(addr)
+		return nil
 	}
 	return nil
 }

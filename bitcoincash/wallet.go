@@ -64,17 +64,7 @@ func NewBitcoinCashWallet(cfg *base.WalletConfig) (*BitcoinCashWallet, error) {
 	w.Logger = cfg.Logger
 	w.CoinType = iwallet.CtBitcoinCash
 	w.Done = make(chan struct{})
-	w.AddressFunc = func(key *btchd.ExtendedKey) (iwallet.Address, error) {
-		newKey, err := hdkeychain.NewKeyFromString(key.String())
-		if err != nil {
-			return iwallet.Address{}, err
-		}
-		addr, err := newKey.Address(w.params())
-		if err != nil {
-			return iwallet.Address{}, err
-		}
-		return iwallet.NewAddress(addr.String(), iwallet.CtBitcoinCash), nil
-	}
+	w.AddressFunc = w.keyToAddress
 	return w, nil
 }
 
@@ -774,9 +764,9 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 	}
 
 	var (
-		additionalKeysByAddress map[string]*bchutil.WIF
-		additionalPrevScripts   map[wire.OutPoint][]byte
-		inVals                  map[wire.OutPoint]int64
+		additionalKeysByAddress = make(map[string]*bchutil.WIF)
+		additionalPrevScripts   = make(map[wire.OutPoint][]byte)
+		inVals                  = make(map[wire.OutPoint]int64)
 	)
 
 	// Create input source
@@ -796,11 +786,6 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 			err = errors.New("insufficient funds")
 			return
 		}
-		var (
-			additionalKeysByAddress = make(map[string]*bchutil.WIF)
-			additionalPrevScripts   = make(map[wire.OutPoint][]byte)
-			inVals                  = make(map[wire.OutPoint]int64)
-		)
 		for _, c := range coins.Coins() {
 			total += bchutil.Amount(c.Value().ToUnit(btcutil.AmountSatoshi))
 
@@ -895,8 +880,7 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 		return wif.PrivKey, wif.CompressPubKey, nil
 	})
 
-	getScript := txscript.ScriptClosure(func(
-		addr bchutil.Address) ([]byte, error) {
+	getScript := txscript.ScriptClosure(func(addr bchutil.Address) ([]byte, error) {
 		return nil, nil
 	})
 
@@ -907,9 +891,21 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 			authoredTx.Tx, i, inVals[txIn.PreviousOutPoint], prevOutScript,
 			txscript.SigHashAll, getKey, getScript, txIn.SignatureScript)
 		if err != nil {
-			return nil, errors.New("failed to sign transaction")
+			return nil, fmt.Errorf("failed to sign transaction: %s", err)
 		}
 		txIn.SignatureScript = script
 	}
 	return authoredTx.Tx, nil
+}
+
+func (w *BitcoinCashWallet) keyToAddress(key *btchd.ExtendedKey) (iwallet.Address, error) {
+	newKey, err := hdkeychain.NewKeyFromString(key.String())
+	if err != nil {
+		return iwallet.Address{}, err
+	}
+	addr, err := newKey.Address(w.params())
+	if err != nil {
+		return iwallet.Address{}, err
+	}
+	return iwallet.NewAddress(addr.String(), iwallet.CtBitcoinCash), nil
 }

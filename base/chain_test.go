@@ -165,7 +165,7 @@ func TestChainManager_initializeChain(t *testing.T) {
 	client.GenerateBlock()
 	client.GenerateBlock()
 
-	txSub, blockSub, bestHeight, err := chain.initializeChain()
+	txSub, blockSub, bestHeight, err := chain.initializeChain(iwallet.BlockInfo{}, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -21,7 +21,7 @@ const (
 	// lookaheadWindow is the number of keys to generate after the last
 	// unused key in the wallet. The key manager strives to maintain
 	// this buffer.
-	lookaheadWindow = 20
+	lookaheadWindow = 10
 
 	// defaultKdfRounds is the number of rounds to use when generating the
 	// encryption key. The greater this number is, the harder it is to
