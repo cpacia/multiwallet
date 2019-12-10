@@ -16,6 +16,7 @@ import (
 	"github.com/cpacia/multiwallet/database"
 	"github.com/cpacia/multiwallet/database/sqlitedb"
 	iwallet "github.com/cpacia/wallet-interface"
+	"github.com/jarcoal/httpmock"
 	"github.com/op/go-logging"
 	"testing"
 	"time"
@@ -24,7 +25,11 @@ import (
 func newTestWallet() (*BitcoinWallet, error) {
 	w := &BitcoinWallet{
 		testnet: true,
+		feeUrl: "https://btc.fees.openbazaar.org/",
 	}
+
+	httpmock.RegisterResponder("GET", w.feeUrl,
+		httpmock.NewStringResponder(200, `{"priority": 50, "normal": 25, "economic": 12}`))
 
 	chainClient := base.NewMockChainClient()
 
@@ -118,6 +123,9 @@ func TestBitcoinWallet_IsDust(t *testing.T) {
 }
 
 func TestBitcoinWallet_EstimateSpendFee(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
 	tests := []struct {
 		feeLevel      iwallet.FeeLevel
 		amount        iwallet.Amount
@@ -127,7 +135,7 @@ func TestBitcoinWallet_EstimateSpendFee(t *testing.T) {
 		{
 			amount:   iwallet.NewAmount(500000),
 			feeLevel: iwallet.FlEconomic,
-			expected: iwallet.NewAmount(360),
+			expected: iwallet.NewAmount(864),
 		},
 		{
 			amount:   iwallet.NewAmount(500000),
@@ -137,7 +145,7 @@ func TestBitcoinWallet_EstimateSpendFee(t *testing.T) {
 		{
 			amount:   iwallet.NewAmount(500000),
 			feeLevel: iwallet.FlPriority,
-			expected: iwallet.NewAmount(1440),
+			expected: iwallet.NewAmount(3600),
 		},
 		{
 			amount:        iwallet.NewAmount(1000000),
@@ -194,6 +202,9 @@ func TestBitcoinWallet_EstimateSpendFee(t *testing.T) {
 }
 
 func TestBitcoinWallet_Spend(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
 	w, err := newTestWallet()
 	if err != nil {
 		t.Fatal(err)
@@ -245,7 +256,7 @@ func TestBitcoinWallet_Spend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected := "d5fb22ec79246b2185555e62dd3475a955aa430107d78f7eb1b654f0051bfac8"
+	expected := "ba147e7132d46d17a85bcc51a381f5cb704f7ec7e668a851521ab17cb30e9c3d"
 	if txid.String() != expected {
 		t.Errorf("Expected txid %s, got %s", expected, txid)
 	}
@@ -288,6 +299,9 @@ func TestBitcoinWallet_Spend(t *testing.T) {
 }
 
 func TestBitcoinWallet_SweepWallet(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
 	w, err := newTestWallet()
 	if err != nil {
 		t.Fatal(err)
@@ -339,7 +353,7 @@ func TestBitcoinWallet_SweepWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected := "607405710a5d004af494cb0a2c92671e33f8865f1267fed77a5a058a100dd864"
+	expected := "30f67e08e85533be14031e86eea07aada5cdabdfda634537e1778340c88420a7"
 	if txid.String() != expected {
 		t.Errorf("Expected txid %s, got %s", expected, txid)
 	}
@@ -382,6 +396,9 @@ func TestBitcoinWallet_SweepWallet(t *testing.T) {
 }
 
 func TestBitcoinWallet_EstimateEscrowFee(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
 	tests := []struct {
 		threshold int
 		level     iwallet.FeeLevel
@@ -390,7 +407,7 @@ func TestBitcoinWallet_EstimateEscrowFee(t *testing.T) {
 		{
 			threshold: 1,
 			level:     iwallet.FlEconomic,
-			expected:  iwallet.NewAmount(915),
+			expected:  iwallet.NewAmount(2196),
 		},
 		{
 			threshold: 1,
@@ -400,7 +417,7 @@ func TestBitcoinWallet_EstimateEscrowFee(t *testing.T) {
 		{
 			threshold: 1,
 			level:     iwallet.FlPriority,
-			expected:  iwallet.NewAmount(3660),
+			expected:  iwallet.NewAmount(9150),
 		},
 		{
 			threshold: 2,
@@ -410,7 +427,7 @@ func TestBitcoinWallet_EstimateEscrowFee(t *testing.T) {
 		{
 			threshold: 2,
 			level:     iwallet.FlNormal,
-			expected:  iwallet.NewAmount(3170),
+			expected:  iwallet.NewAmount(7925),
 		},
 		{
 			threshold: 2,
@@ -954,6 +971,9 @@ func TestBitcoinWallet_ReleaseFundsAfterTimeout(t *testing.T) {
 }
 
 func TestBitcoinWallet_buildTx(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
 	w, err := newTestWallet()
 	if err != nil {
 		t.Fatal(err)
@@ -1044,7 +1064,7 @@ func TestBitcoinWallet_buildTx(t *testing.T) {
 	if !paysTo {
 		t.Error("Pay to address not found in transaction")
 	}
-	if totalOut != 999250 {
+	if totalOut != 998125 {
 		t.Errorf("Expected totalOut of %d, got %d", 999250, totalOut)
 	}
 
