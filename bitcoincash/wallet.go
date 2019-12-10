@@ -149,38 +149,41 @@ func (w *BitcoinCashWallet) EstimateSpendFee(amount iwallet.Amount, feeLevel iwa
 // the state changes should be discarded. Only when Commit() is called should
 // the state changes be applied and the transaction broadcasted to the network.
 func (w *BitcoinCashWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.Amount, feeLevel iwallet.FeeLevel) (iwallet.TransactionID, error) {
-	var txid iwallet.TransactionID
-	err := w.DB.Update(func(dbtx database.Tx) error {
+	var (
+		txid iwallet.TransactionID
+		buf  bytes.Buffer
+	)
+	err := w.DB.View(func(dbtx database.Tx) error {
 		tx, err := w.buildTx(dbtx, amt.Int64(), to, feeLevel)
 		if err != nil {
 			return err
 		}
 		txid = iwallet.TransactionID(tx.TxHash().String())
-
-		var buf bytes.Buffer
 		if err := tx.BchEncode(&buf, wire.ProtocolVersion, wire.BaseEncoding); err != nil {
 			return err
 		}
+		return nil
+	})
 
-		wtx, ok := wtx.(*base.DBTx)
-		if !ok {
-			return err
-		}
+	wbtx, ok := wtx.(*base.DBTx)
+	if !ok {
+		return txid, errors.New("tx is not expected type")
+	}
 
-		wtx.OnCommit = func() error {
+	wbtx.OnCommit = func() error {
+		return w.DB.Update(func(dbtx database.Tx) error {
 			err := dbtx.Save(&database.UnconfirmedTransaction{
 				Timestamp: time.Now(),
 				Coin:      iwallet.CtBitcoinCash,
 				TxBytes:   buf.Bytes(),
-				Txid:      tx.TxHash().String(),
+				Txid:      txid.String(),
 			})
 			if err != nil {
 				return err
 			}
 			return w.ChainClient.Broadcast(buf.Bytes())
-		}
-		return nil
-	})
+		})
+	}
 	return txid, err
 }
 
@@ -188,7 +191,10 @@ func (w *BitcoinCashWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwalle
 // address. It is expected for most coins that the fee will be subtracted
 // from the amount sent rather than added to it.
 func (w *BitcoinCashWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level iwallet.FeeLevel) (iwallet.TransactionID, error) {
-	var txid iwallet.TransactionID
+	var (
+		txid iwallet.TransactionID
+		buf  bytes.Buffer
+	)
 	err := w.DB.Update(func(dbtx database.Tx) error {
 		var (
 			totalIn               bchutil.Amount
@@ -280,32 +286,32 @@ func (w *BitcoinCashWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, leve
 		}
 
 		txid = iwallet.TransactionID(tx.TxHash().String())
-
-		var buf bytes.Buffer
 		if err := tx.BchEncode(&buf, wire.ProtocolVersion, wire.BaseEncoding); err != nil {
 			return err
 		}
 
-		wtx, ok := wtx.(*base.DBTx)
-		if !ok {
-			return err
-		}
+		return nil
+	})
 
-		wtx.OnCommit = func() error {
+	wbtx, ok := wtx.(*base.DBTx)
+	if !ok {
+		return txid, errors.New("tx is not expected type")
+	}
+
+	wbtx.OnCommit = func() error {
+		return w.DB.Update(func(dbtx database.Tx) error {
 			err := dbtx.Save(&database.UnconfirmedTransaction{
 				Timestamp: time.Now(),
 				Coin:      iwallet.CtBitcoinCash,
 				TxBytes:   buf.Bytes(),
-				Txid:      tx.TxHash().String(),
+				Txid:      txid.String(),
 			})
 			if err != nil {
 				return err
 			}
 			return w.ChainClient.Broadcast(buf.Bytes())
-		}
-
-		return nil
-	})
+		})
+	}
 
 	return txid, err
 }
@@ -422,7 +428,7 @@ func (w *BitcoinCashWallet) SignMultisigTransaction(txn iwallet.Transaction, key
 		if err != nil {
 			continue
 		}
-		bs := iwallet.EscrowSignature{Index: i, Signature: sig}
+		bs := iwallet.EscrowSignature{Index: i, Signature: sig[:64]}
 		sigs = append(sigs, bs)
 	}
 	return sigs, nil
@@ -486,17 +492,7 @@ func (w *BitcoinCashWallet) BuildAndSend(wtx iwallet.Tx, txn iwallet.Transaction
 		return iwallet.TransactionID(""), errors.New("too many pubkeys in redeem script")
 	}
 
-	scriptAddr, err := bchutil.NewAddressScriptHash(redeemScript, w.params())
-	if err != nil {
-		return iwallet.TransactionID(""), err
-	}
-
-	scriptPubkey, err := txscript.PayToAddrScript(scriptAddr)
-	if err != nil {
-		return iwallet.TransactionID(""), err
-	}
-
-	for i, input := range tx.TxIn {
+	for i := range tx.TxIn {
 		// The primary challenge for us here is matching signatures with public keys from
 		// the redeem script. The Bitcoin Cash schnorr signature specification requires
 		// that we enumerate the indexes of the public keys for which we are providing a
@@ -526,7 +522,7 @@ func (w *BitcoinCashWallet) BuildAndSend(wtx iwallet.Tx, txn iwallet.Transaction
 
 		pubkeyIndexes := make([]int, 0, len(parsedSigs))
 
-		sigHash, err := txscript.CalcSignatureHash(scriptPubkey, nil, txscript.SigHashAll, tx, i, txn.From[i].Amount.Int64(), true)
+		sigHash, err := txscript.CalcSignatureHash(redeemScript, txscript.NewTxSigHashes(tx), txscript.SigHashAll|txscript.SigHashForkID, tx, i, txn.From[i].Amount.Int64(), true)
 		if err != nil {
 			return iwallet.TransactionID(""), err
 		}
@@ -549,14 +545,13 @@ func (w *BitcoinCashWallet) BuildAndSend(wtx iwallet.Tx, txn iwallet.Transaction
 			mask  = 0x80
 		)
 		for _, idx := range pubkeyIndexes {
-			dummy[0] |= byte(mask >> uint(8-idx))
+			dummy[0] |= byte(mask >> uint(8-(idx+1)))
 		}
 
 		builder := txscript.NewScriptBuilder()
 		builder.AddData(dummy)
-
 		for _, sig := range escrowSigs {
-			builder.AddData(sig.Signature)
+			builder.AddData(append(sig.Signature, byte(txscript.SigHashAll|txscript.SigHashForkID)))
 		}
 
 		if timeLocked {
@@ -568,23 +563,23 @@ func (w *BitcoinCashWallet) BuildAndSend(wtx iwallet.Tx, txn iwallet.Transaction
 		if err != nil {
 			return iwallet.TransactionID(""), err
 		}
-		input.SignatureScript = scriptSig
+		tx.TxIn[i].SignatureScript = scriptSig
 	}
 
 	txid := iwallet.TransactionID(tx.TxHash().String())
 
-	err = w.DB.Update(func(dbtx database.Tx) error {
-		var buf bytes.Buffer
-		if err := tx.BchEncode(&buf, wire.ProtocolVersion, wire.BaseEncoding); err != nil {
-			return err
-		}
+	var buf bytes.Buffer
+	if err := tx.BchEncode(&buf, wire.ProtocolVersion, wire.BaseEncoding); err != nil {
+		return txid, err
+	}
 
-		wtx, ok := wtx.(*base.DBTx)
-		if !ok {
-			return err
-		}
+	wbtx, ok := wtx.(*base.DBTx)
+	if !ok {
+		return txid, errors.New("tx is not expected type")
+	}
 
-		wtx.OnCommit = func() error {
+	wbtx.OnCommit = func() error {
+		return w.DB.Update(func(dbtx database.Tx) error {
 			err := dbtx.Save(&database.UnconfirmedTransaction{
 				Timestamp: time.Now(),
 				Coin:      iwallet.CtBitcoinCash,
@@ -595,10 +590,8 @@ func (w *BitcoinCashWallet) BuildAndSend(wtx iwallet.Tx, txn iwallet.Transaction
 				return err
 			}
 			return w.ChainClient.Broadcast(buf.Bytes())
-		}
-
-		return nil
-	})
+		})
+	}
 
 	return txid, nil
 }
@@ -650,7 +643,7 @@ func (w *BitcoinCashWallet) CreateMultisigWithTimeout(keys []btcec.PublicKey, th
 // ReleaseFundsAfterTimeout will release funds from the escrow. The signature will
 // be created using the timeoutKey.
 func (w *BitcoinCashWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet.Transaction, timeoutKey btcec.PrivateKey, redeemScript []byte) (iwallet.TransactionID, error) {
-	tx := wire.NewMsgTx(1)
+	tx := wire.NewMsgTx(2)
 	for _, from := range txn.From {
 		op := wire.OutPoint{}
 		if err := op.Deserialize(bytes.NewReader(from.ID)); err != nil {
@@ -676,49 +669,46 @@ func (w *BitcoinCashWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet
 	// BIP 69 sorting
 	txsort.InPlaceSort(tx)
 
-	scriptAddr, err := bchutil.NewAddressScriptHash(redeemScript, w.params())
-	if err != nil {
-		return iwallet.TransactionID(""), err
-	}
-
-	scriptPubkey, err := txscript.PayToAddrScript(scriptAddr)
-	if err != nil {
-		return iwallet.TransactionID(""), err
-	}
-
 	privKey, _ := bchec.PrivKeyFromBytes(bchec.S256(), timeoutKey.Serialize())
 
-	for i, input := range tx.TxIn {
-		sig, err := txscript.RawTxInSchnorrSignature(tx, i, scriptPubkey, txscript.SigHashAll, privKey, txn.From[i].Amount.Int64())
+	locktime, err := lockTimeFromRedeemScript(redeemScript)
+	if err != nil {
+		return iwallet.TransactionID(""), err
+	}
+	for i := range tx.TxIn {
+		tx.TxIn[i].Sequence = locktime
+	}
+
+	for i := range tx.TxIn {
+		sig, err := txscript.RawTxInSchnorrSignature(tx, i, redeemScript, txscript.SigHashAll, privKey, txn.From[i].Amount.Int64())
 		if err != nil {
 			return iwallet.TransactionID(""), err
 		}
-
 		builder := txscript.NewScriptBuilder()
 		builder.AddData(sig)
-		builder.AddOp(txscript.OP_1)
+		builder.AddOp(txscript.OP_0)
 		builder.AddData(redeemScript)
 		scriptSig, err := builder.Script()
 		if err != nil {
 			return iwallet.TransactionID(""), err
 		}
-		input.SignatureScript = scriptSig
+		tx.TxIn[i].SignatureScript = scriptSig
 	}
 
 	txid := iwallet.TransactionID(tx.TxHash().String())
 
-	err = w.DB.Update(func(dbtx database.Tx) error {
-		var buf bytes.Buffer
-		if err := tx.BchEncode(&buf, wire.ProtocolVersion, wire.BaseEncoding); err != nil {
-			return err
-		}
+	var buf bytes.Buffer
+	if err := tx.BchEncode(&buf, wire.ProtocolVersion, wire.BaseEncoding); err != nil {
+		return txid, err
+	}
 
-		wtx, ok := wtx.(*base.DBTx)
-		if !ok {
-			return err
-		}
+	wbtx, ok := wtx.(*base.DBTx)
+	if !ok {
+		return txid, errors.New("tx is not expected type")
+	}
 
-		wtx.OnCommit = func() error {
+	wbtx.OnCommit = func() error {
+		return w.DB.Update(func(dbtx database.Tx) error {
 			err := dbtx.Save(&database.UnconfirmedTransaction{
 				Timestamp: time.Now(),
 				Coin:      iwallet.CtBitcoinCash,
@@ -729,10 +719,8 @@ func (w *BitcoinCashWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet
 				return err
 			}
 			return w.ChainClient.Broadcast(buf.Bytes())
-		}
-
-		return nil
-	})
+		})
+	}
 
 	return txid, nil
 }
@@ -783,7 +771,7 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 		coinSelector := coinset.MaxValueAgeCoinSelector{MaxInputs: 10000, MinChangeAmount: btcutil.Amount(0)}
 		coins, err := coinSelector.CoinSelect(btcutil.Amount(target.ToUnit(bchutil.AmountSatoshi)), allCoins)
 		if err != nil {
-			err = errors.New("insufficient funds")
+			err = base.ErrInsufficientFunds
 			return
 		}
 		for _, c := range coins.Coins() {
@@ -908,4 +896,34 @@ func (w *BitcoinCashWallet) keyToAddress(key *btchd.ExtendedKey) (iwallet.Addres
 		return iwallet.Address{}, err
 	}
 	return iwallet.NewAddress(addr.String(), iwallet.CtBitcoinCash), nil
+}
+
+func lockTimeFromRedeemScript(redeemScript []byte) (uint32, error) {
+	if len(redeemScript) < 113 {
+		return 0, errors.New("redeem script invalid length")
+	}
+	if redeemScript[106] != 103 {
+		return 0, errors.New("invalid redeem script")
+	}
+	if redeemScript[107] == 0 {
+		return 0, nil
+	}
+	if 81 <= redeemScript[107] && redeemScript[107] <= 96 {
+		return uint32((redeemScript[107] - 81) + 1), nil
+	}
+	var v []byte
+	op := redeemScript[107]
+	if 1 <= op && op <= 75 {
+		for i := 0; i < int(op); i++ {
+			v = append(v, []byte{redeemScript[108+i]}...)
+		}
+	} else {
+		return 0, errors.New("too many bytes pushed for sequence")
+	}
+	var result int64
+	for i, val := range v {
+		result |= int64(val) << uint8(8*i)
+	}
+
+	return uint32(result), nil
 }

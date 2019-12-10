@@ -3,7 +3,6 @@ package base
 import (
 	"bytes"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	iwallet "github.com/cpacia/wallet-interface"
 	"math/rand"
@@ -208,16 +207,18 @@ func (m *MockChainClient) SubscribeBlocks() (*BlockSubscription, error) {
 }
 
 func (m *MockChainClient) Broadcast(serializedTx []byte) error {
+	if m.returnErr != nil {
+		return m.returnErr
+	}
+	return nil
+}
+
+func (m *MockChainClient) BroadcastInternal(tx iwallet.Transaction) error {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
 	if m.returnErr != nil {
 		return m.returnErr
-	}
-
-	var tx iwallet.Transaction
-	if err := json.Unmarshal(serializedTx, &tx); err != nil {
-		return err
 	}
 
 	m.txIndex[tx.ID] = tx

@@ -14,8 +14,11 @@ import (
 	"github.com/jinzhu/gorm"
 	"github.com/op/go-logging"
 	"strings"
+	"sync"
 	"time"
 )
+
+var ErrInsufficientFunds = errors.New("insufficient funds")
 
 // WalletConfig is struct that can be used pass into the constructor
 // for each coin's wallet.
@@ -29,6 +32,7 @@ type WalletConfig struct {
 // DBTx satisfies the iwallet.Tx interface.
 type DBTx struct {
 	isClosed bool
+	mtx      sync.Mutex
 
 	OnCommit func() error
 }
@@ -45,6 +49,7 @@ func (tx *DBTx) Commit() error {
 		}
 	}
 	tx.isClosed = true
+	tx.mtx.Unlock()
 	return nil
 }
 
@@ -55,6 +60,7 @@ func (tx *DBTx) Rollback() error {
 	}
 	tx.OnCommit = nil
 	tx.isClosed = true
+	tx.mtx.Unlock()
 	return nil
 }
 
@@ -77,6 +83,7 @@ type WalletBase struct {
 	AddressFunc  func(key *hd.ExtendedKey) (iwallet.Address, error)
 
 	subscriptionChan chan *subscription
+	txMtx            sync.Mutex
 
 	Done chan struct{}
 }
@@ -84,7 +91,8 @@ type WalletBase struct {
 // Begin returns a new database transaction. A transaction must only be used
 // once. After Commit() or Rollback() is called the transaction can be discarded.
 func (w *WalletBase) Begin() (iwallet.Tx, error) {
-	return &DBTx{}, nil
+	w.txMtx.Lock()
+	return &DBTx{mtx: w.txMtx}, nil
 }
 
 // WalletExists should return whether the wallet exits or has been
@@ -150,6 +158,7 @@ func (w *WalletBase) OpenWallet() error {
 		return err
 	}
 	w.Keychain = keychain
+	w.txMtx = sync.Mutex{}
 
 	subscriptionChan := make(chan iwallet.Transaction)
 

@@ -348,12 +348,23 @@ func (cm *ChainManager) BestBlock() iwallet.BlockInfo {
 }
 
 // AddWatchOnly adds a watch only address to track.
+//
+// Note we use a separate goroutine here to avoid a potential deadlock
+// if the caller has an open database transaction.
 func (cm *ChainManager) AddWatchOnly(addr iwallet.Address) {
-	cm.msgChan <- &addWatchOnly{addr: addr}
+	go func() {
+		cm.msgChan <- &addWatchOnly{addr: addr}
+	}()
 }
 
+// AddAddressSubscription subscribes to the given address in the client.
+//
+// Note we use a separate goroutine here to avoid a potential deadlock
+// if the caller has an open database transaction.
 func (cm *ChainManager) AddAddressSubscription(addr iwallet.Address) {
-	cm.msgChan <- &updateAddrSubscription{addrs: []iwallet.Address{addr}}
+	go func() {
+		cm.msgChan <- &updateAddrSubscription{addrs: []iwallet.Address{addr}}
+	}()
 }
 
 // ScanTransactions triggers a rescan of all transactions and utxos from the provided height.
