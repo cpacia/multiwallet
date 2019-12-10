@@ -1,56 +1,55 @@
-package bitcoincash
+package bitcoin
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/coinset"
-	btchd "github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/btcsuite/btcutil/txsort"
+	"github.com/btcsuite/btcwallet/wallet/txauthor"
+	"github.com/btcsuite/btcwallet/wallet/txrules"
+	"github.com/btcsuite/btcwallet/wallet/txsizes"
 	"github.com/cpacia/multiwallet/base"
 	"github.com/cpacia/multiwallet/client/bchd"
 	"github.com/cpacia/multiwallet/database"
 	iwallet "github.com/cpacia/wallet-interface"
-	"github.com/gcash/bchd/bchec"
-	"github.com/gcash/bchd/blockchain"
-	"github.com/gcash/bchd/chaincfg"
-	"github.com/gcash/bchd/chaincfg/chainhash"
-	"github.com/gcash/bchd/txscript"
-	"github.com/gcash/bchd/wire"
-	"github.com/gcash/bchutil"
-	"github.com/gcash/bchutil/hdkeychain"
-	"github.com/gcash/bchutil/txsort"
-	"github.com/gcash/bchwallet/wallet/txauthor"
-	"github.com/gcash/bchwallet/wallet/txrules"
-	"github.com/gcash/bchwallet/wallet/txsizes"
 	"time"
 )
 
 // Assert interfaces
-var _ = iwallet.Wallet(&BitcoinCashWallet{})
-var _ = iwallet.WalletCrypter(&BitcoinCashWallet{})
-var _ = iwallet.Escrow(&BitcoinCashWallet{})
-var _ = iwallet.EscrowWithTimeout(&BitcoinCashWallet{})
+var _ = iwallet.Wallet(&BitcoinWallet{})
+var _ = iwallet.WalletCrypter(&BitcoinWallet{})
+var _ = iwallet.Escrow(&BitcoinWallet{})
+var _ = iwallet.EscrowWithTimeout(&BitcoinWallet{})
 
 var feeLevels = map[iwallet.FeeLevel]iwallet.Amount{
 	iwallet.FlEconomic: iwallet.NewAmount(5),
-	iwallet.FlNormal:   iwallet.NewAmount(15),
-	iwallet.FlPriority: iwallet.NewAmount(25),
+	iwallet.FlNormal:   iwallet.NewAmount(10),
+	iwallet.FlPriority: iwallet.NewAmount(20),
 }
 
-// BitcoinCashWallet extends wallet base and implements the
+// BitcoinWallet extends wallet base and implements the
 // remaining functions for each interface.
-type BitcoinCashWallet struct {
+type BitcoinWallet struct {
 	base.WalletBase
 	testnet bool
 }
 
-// NewBitcoinCashWallet returns a new BitcoinCashWallet. This constructor
+// NewBitcoinWallet returns a new BitcoinWallet. This constructor
 // attempts to connect to the API. If it fails, it will not build.
-func NewBitcoinCashWallet(cfg *base.WalletConfig) (*BitcoinCashWallet, error) {
-	w := &BitcoinCashWallet{
+func NewBitcoinWallet(cfg *base.WalletConfig) (*BitcoinWallet, error) {
+	w := &BitcoinWallet{
 		testnet: cfg.Testnet,
 	}
 
@@ -62,7 +61,7 @@ func NewBitcoinCashWallet(cfg *base.WalletConfig) (*BitcoinCashWallet, error) {
 	w.ChainClient = chainClient
 	w.DB = cfg.DB
 	w.Logger = cfg.Logger
-	w.CoinType = iwallet.CtBitcoinCash
+	w.CoinType = iwallet.CtBitcoin
 	w.Done = make(chan struct{})
 	w.AddressFunc = w.keyToAddress
 	return w, nil
@@ -70,8 +69,8 @@ func NewBitcoinCashWallet(cfg *base.WalletConfig) (*BitcoinCashWallet, error) {
 
 // ValidateAddress validates that the serialization of the address is correct
 // for this coin and network. It returns an error if it isn't.
-func (w *BitcoinCashWallet) ValidateAddress(addr iwallet.Address) error {
-	_, err := bchutil.DecodeAddress(addr.String(), w.params())
+func (w *BitcoinWallet) ValidateAddress(addr iwallet.Address) error {
+	_, err := btcutil.DecodeAddress(addr.String(), w.params())
 	return err
 }
 
@@ -80,8 +79,8 @@ func (w *BitcoinCashWallet) ValidateAddress(addr iwallet.Address) error {
 // participants. If the amount that is supposed to be sent to a given party is below
 // the dust threshold, openbazaar-go will not pay that party to avoid building a transaction
 // that never confirms.
-func (w *BitcoinCashWallet) IsDust(amount iwallet.Amount) bool {
-	return txrules.IsDustAmount(bchutil.Amount(amount.Int64()), 25, txrules.DefaultRelayFeePerKb)
+func (w *BitcoinWallet) IsDust(amount iwallet.Amount) bool {
+	return txrules.IsDustAmount(btcutil.Amount(amount.Int64()), 25, txrules.DefaultRelayFeePerKb)
 }
 
 // EstimateSpendFee should return the anticipated fee to transfer a given amount of coins
@@ -91,15 +90,15 @@ func (w *BitcoinCashWallet) IsDust(amount iwallet.Amount) bool {
 // that changes the estimated fee as it's only intended to be an estimate.
 //
 // All amounts should be in the coin's base unit (for example: satoshis).
-func (w *BitcoinCashWallet) EstimateSpendFee(amount iwallet.Amount, feeLevel iwallet.FeeLevel) (iwallet.Amount, error) {
+func (w *BitcoinWallet) EstimateSpendFee(amount iwallet.Amount, feeLevel iwallet.FeeLevel) (iwallet.Amount, error) {
 	amt := iwallet.NewAmount(0)
 	err := w.DB.Update(func(dbtx database.Tx) error {
 		// Since this is an estimate we can use a dummy output address. Let's use a long one so we don't under estimate.
-		addrStr := "qzc3v2xhklaa7wzfjha9lut4e0ytj6z6rypk6fce4m"
+		addrStr := "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"
 		if w.testnet {
-			addrStr = "mkWqVHGbfpznuu3JpPoXfCnHrhoekJLUGu"
+			addrStr = "tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx"
 		}
-		tx, err := w.buildTx(dbtx, amount.Int64(), iwallet.NewAddress(addrStr, iwallet.CtBitcoinCash), feeLevel)
+		tx, err := w.buildTx(dbtx, amount.Int64(), iwallet.NewAddress(addrStr, iwallet.CtBitcoin), feeLevel)
 		if err != nil {
 			return err
 		}
@@ -116,12 +115,12 @@ func (w *BitcoinCashWallet) EstimateSpendFee(amount iwallet.Amount, feeLevel iwa
 		var inval int64
 		for _, input := range tx.TxIn {
 			for _, utxo := range utxoRecords {
-				var op wire.OutPoint
 				ser, err := hex.DecodeString(utxo.Outpoint)
 				if err != nil {
 					return err
 				}
-				if err := op.Deserialize(bytes.NewReader(ser)); err != nil {
+				op, err := derializeOutpoint(ser)
+				if err != nil {
 					return err
 				}
 
@@ -148,7 +147,7 @@ func (w *BitcoinCashWallet) EstimateSpendFee(amount iwallet.Amount, feeLevel iwa
 // state changes should be prepped and held in memory. If Rollback() is called
 // the state changes should be discarded. Only when Commit() is called should
 // the state changes be applied and the transaction broadcasted to the network.
-func (w *BitcoinCashWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.Amount, feeLevel iwallet.FeeLevel) (iwallet.TransactionID, error) {
+func (w *BitcoinWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.Amount, feeLevel iwallet.FeeLevel) (iwallet.TransactionID, error) {
 	var (
 		txid iwallet.TransactionID
 		buf  bytes.Buffer
@@ -159,7 +158,7 @@ func (w *BitcoinCashWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwalle
 			return err
 		}
 		txid = iwallet.TransactionID(tx.TxHash().String())
-		if err := tx.BchEncode(&buf, wire.ProtocolVersion, wire.BaseEncoding); err != nil {
+		if err := tx.BtcEncode(&buf, wire.ProtocolVersion, wire.WitnessEncoding); err != nil {
 			return err
 		}
 		return nil
@@ -174,7 +173,7 @@ func (w *BitcoinCashWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwalle
 		return w.DB.Update(func(dbtx database.Tx) error {
 			err := dbtx.Save(&database.UnconfirmedTransaction{
 				Timestamp: time.Now(),
-				Coin:      iwallet.CtBitcoinCash,
+				Coin:      iwallet.CtBitcoin,
 				TxBytes:   buf.Bytes(),
 				Txid:      txid.String(),
 			})
@@ -190,16 +189,16 @@ func (w *BitcoinCashWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwalle
 // SweepWallet should sweep the full balance of the wallet to the requested
 // address. It is expected for most coins that the fee will be subtracted
 // from the amount sent rather than added to it.
-func (w *BitcoinCashWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level iwallet.FeeLevel) (iwallet.TransactionID, error) {
+func (w *BitcoinWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level iwallet.FeeLevel) (iwallet.TransactionID, error) {
 	var (
 		txid iwallet.TransactionID
 		buf  bytes.Buffer
 	)
 	err := w.DB.Update(func(dbtx database.Tx) error {
 		var (
-			totalIn               bchutil.Amount
+			totalIn               btcutil.Amount
 			tx                    = wire.NewMsgTx(1)
-			keyMap                = make(map[string]*btcec.PrivateKey)
+			keyMap                = make(map[wire.OutPoint]*btcec.PrivateKey)
 			additionalPrevScripts = make(map[wire.OutPoint][]byte)
 			inVals                = make(map[wire.OutPoint]int64)
 		)
@@ -215,8 +214,8 @@ func (w *BitcoinCashWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, leve
 				return err
 			}
 			op := wire.NewOutPoint(h, coin.Index())
-			tx.AddTxIn(wire.NewTxIn(op, nil))
-			totalIn += bchutil.Amount(coin.Value().ToUnit(btcutil.AmountSatoshi))
+			tx.AddTxIn(wire.NewTxIn(op, nil, nil))
+			totalIn += btcutil.Amount(coin.Value().ToUnit(btcutil.AmountSatoshi))
 
 			inVals[*op] = int64(coin.Value())
 
@@ -224,9 +223,9 @@ func (w *BitcoinCashWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, leve
 			if err != nil {
 				return err
 			}
-			keyMap[string(coin.PkScript())] = priv
+			keyMap[*op] = priv
 
-			address, err := bchutil.DecodeAddress(string(coin.PkScript()), w.params())
+			address, err := btcutil.DecodeAddress(string(coin.PkScript()), w.params())
 			if err != nil {
 				return err
 			}
@@ -238,7 +237,7 @@ func (w *BitcoinCashWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, leve
 
 			additionalPrevScripts[*op] = script
 		}
-		addr, err := bchutil.DecodeAddress(to.String(), w.params())
+		addr, err := btcutil.DecodeAddress(to.String(), w.params())
 		if err != nil {
 			return err
 		}
@@ -259,34 +258,21 @@ func (w *BitcoinCashWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, leve
 		txsort.InPlaceSort(tx)
 
 		// Sign tx
-		getKey := txscript.KeyClosure(func(addr bchutil.Address) (*bchec.PrivateKey, bool, error) {
-			addrStr := addr.EncodeAddress()
-			key := keyMap[addrStr]
-
-			priv, _ := bchec.PrivKeyFromBytes(bchec.S256(), key.Serialize())
-
-			return priv, true, nil
-		})
-
-		getScript := txscript.ScriptClosure(func(
-			addr bchutil.Address) ([]byte, error) {
-			return nil, nil
-		})
-
 		for i, txIn := range tx.TxIn {
 			prevOutScript := additionalPrevScripts[txIn.PreviousOutPoint]
+			key := keyMap[txIn.PreviousOutPoint]
 
-			script, err := txscript.SignTxOutput(w.params(),
-				tx, i, inVals[txIn.PreviousOutPoint], prevOutScript,
-				txscript.SigHashAll, getKey, getScript, txIn.SignatureScript)
+			script, err := txscript.WitnessSignature(tx, txscript.NewTxSigHashes(tx), i,
+				inVals[txIn.PreviousOutPoint], prevOutScript,
+				txscript.SigHashAll, key, true)
 			if err != nil {
 				return errors.New("failed to sign transaction")
 			}
-			txIn.SignatureScript = script
+			txIn.Witness = script
 		}
 
 		txid = iwallet.TransactionID(tx.TxHash().String())
-		if err := tx.BchEncode(&buf, wire.ProtocolVersion, wire.BaseEncoding); err != nil {
+		if err := tx.BtcEncode(&buf, wire.ProtocolVersion, wire.WitnessEncoding); err != nil {
 			return err
 		}
 
@@ -302,7 +288,7 @@ func (w *BitcoinCashWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, leve
 		return w.DB.Update(func(dbtx database.Tx) error {
 			err := dbtx.Save(&database.UnconfirmedTransaction{
 				Timestamp: time.Now(),
-				Coin:      iwallet.CtBitcoinCash,
+				Coin:      iwallet.CtBitcoin,
 				TxBytes:   buf.Bytes(),
 				Txid:      txid.String(),
 			})
@@ -320,7 +306,7 @@ func (w *BitcoinCashWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, leve
 // this assumes only one input. If there are more inputs OpenBazaar will
 // will add 50% of the returned fee for each additional input. This is a
 // crude fee calculating but it simplifies things quite a bit.
-func (w *BitcoinCashWallet) EstimateEscrowFee(threshold int, level iwallet.FeeLevel) (iwallet.Amount, error) {
+func (w *BitcoinWallet) EstimateEscrowFee(threshold int, level iwallet.FeeLevel) (iwallet.Amount, error) {
 	var (
 		nOuts            = 2
 		redeemScriptSize = 4 + (threshold+1)*34
@@ -353,7 +339,7 @@ func (w *BitcoinCashWallet) EstimateEscrowFee(threshold int, level iwallet.FeeLe
 // also uses 1 of 2 multisigs as a form of a "cancelable" address when sending to
 // a node that is offline. This allows the sender to cancel the payment if the vendor
 // never comes back online.
-func (w *BitcoinCashWallet) CreateMultisigAddress(keys []btcec.PublicKey, threshold int) (iwallet.Address, []byte, error) {
+func (w *BitcoinWallet) CreateMultisigAddress(keys []btcec.PublicKey, threshold int) (iwallet.Address, []byte, error) {
 	if len(keys) < threshold {
 		return iwallet.Address{}, nil, fmt.Errorf("unable to generate multisig script with "+
 			"%d required signatures when there are only %d public "+
@@ -377,11 +363,12 @@ func (w *BitcoinCashWallet) CreateMultisigAddress(keys []btcec.PublicKey, thresh
 	if err != nil {
 		return iwallet.Address{}, nil, err
 	}
-	addr, err := bchutil.NewAddressScriptHash(redeemScript, w.params())
+	witnessProgram := sha256.Sum256(redeemScript)
+	addr, err := btcutil.NewAddressWitnessScriptHash(witnessProgram[:], w.params())
 	if err != nil {
 		return iwallet.Address{}, nil, err
 	}
-	return iwallet.NewAddress(addr.String(), iwallet.CtBitcoinCash), redeemScript, nil
+	return iwallet.NewAddress(addr.String(), iwallet.CtBitcoin), redeemScript, nil
 }
 
 // SignMultisigTransaction should use the provided key to create a signature for
@@ -392,20 +379,20 @@ func (w *BitcoinCashWallet) CreateMultisigAddress(keys []btcec.PublicKey, thresh
 //
 // For coins like bitcoin you may need to return one signature *per input* which is
 // why a slice of signatures is returned.
-func (w *BitcoinCashWallet) SignMultisigTransaction(txn iwallet.Transaction, key btcec.PrivateKey, redeemScript []byte) ([]iwallet.EscrowSignature, error) {
+func (w *BitcoinWallet) SignMultisigTransaction(txn iwallet.Transaction, key btcec.PrivateKey, redeemScript []byte) ([]iwallet.EscrowSignature, error) {
 	var sigs []iwallet.EscrowSignature
 	tx := wire.NewMsgTx(1)
 	for _, from := range txn.From {
-		op := wire.OutPoint{}
-		if err := op.Deserialize(bytes.NewReader(from.ID)); err != nil {
+		op, err := derializeOutpoint(from.ID)
+		if err != nil {
 			return nil, err
 		}
 
-		input := wire.NewTxIn(&op, nil)
+		input := wire.NewTxIn(op, nil, nil)
 		tx.TxIn = append(tx.TxIn, input)
 	}
 	for _, to := range txn.To {
-		addr, err := bchutil.DecodeAddress(to.Address.String(), w.params())
+		addr, err := btcutil.DecodeAddress(to.Address.String(), w.params())
 		if err != nil {
 			return nil, err
 		}
@@ -421,14 +408,14 @@ func (w *BitcoinCashWallet) SignMultisigTransaction(txn iwallet.Transaction, key
 	// BIP 69 sorting
 	txsort.InPlaceSort(tx)
 
-	privKey, _ := bchec.PrivKeyFromBytes(bchec.S256(), key.Serialize())
+	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), key.Serialize())
 
 	for i := range tx.TxIn {
-		sig, err := txscript.RawTxInSchnorrSignature(tx, i, redeemScript, txscript.SigHashAll, privKey, txn.From[i].Amount.Int64())
+		sig, err := txscript.RawTxInWitnessSignature(tx, txscript.NewTxSigHashes(tx), i, txn.From[i].Amount.Int64(), redeemScript, txscript.SigHashAll, privKey)
 		if err != nil {
 			continue
 		}
-		bs := iwallet.EscrowSignature{Index: i, Signature: sig[:64]}
+		bs := iwallet.EscrowSignature{Index: i, Signature: sig[:len(sig)-1]}
 		sigs = append(sigs, bs)
 	}
 	return sigs, nil
@@ -442,18 +429,18 @@ func (w *BitcoinCashWallet) SignMultisigTransaction(txn iwallet.Transaction, key
 //
 // Note a database transaction is used here. Same rules of Commit() and
 // Rollback() apply.
-func (w *BitcoinCashWallet) BuildAndSend(wtx iwallet.Tx, txn iwallet.Transaction, signatures [][]iwallet.EscrowSignature, redeemScript []byte) (iwallet.TransactionID, error) {
+func (w *BitcoinWallet) BuildAndSend(wtx iwallet.Tx, txn iwallet.Transaction, signatures [][]iwallet.EscrowSignature, redeemScript []byte) (iwallet.TransactionID, error) {
 	tx := wire.NewMsgTx(1)
 	for _, from := range txn.From {
-		op := wire.OutPoint{}
-		if err := op.Deserialize(bytes.NewReader(from.ID)); err != nil {
+		op, err := derializeOutpoint(from.ID)
+		if err != nil {
 			return iwallet.TransactionID(""), err
 		}
-		input := wire.NewTxIn(&op, nil)
+		input := wire.NewTxIn(op, nil, nil)
 		tx.TxIn = append(tx.TxIn, input)
 	}
 	for _, to := range txn.To {
-		addr, err := bchutil.DecodeAddress(to.Address.String(), w.params())
+		addr, err := btcutil.DecodeAddress(to.Address.String(), w.params())
 		if err != nil {
 			return iwallet.TransactionID(""), err
 		}
@@ -466,6 +453,12 @@ func (w *BitcoinCashWallet) BuildAndSend(wtx iwallet.Tx, txn iwallet.Transaction
 		tx.TxOut = append(tx.TxOut, output)
 	}
 
+	for _, sig := range signatures {
+		if len(sig) != len(tx.TxIn) {
+			return iwallet.TransactionID(""), errors.New("incorrect number of signatures")
+		}
+	}
+
 	// BIP 69 sorting
 	txsort.InPlaceSort(tx)
 
@@ -475,101 +468,29 @@ func (w *BitcoinCashWallet) BuildAndSend(wtx iwallet.Tx, txn iwallet.Transaction
 		timeLocked = true
 	}
 
-	elems, err := txscript.ExtractDataElements(redeemScript)
-	if err != nil {
-		return iwallet.TransactionID(""), err
-	}
-
-	var pubkeys []*bchec.PublicKey
-	for _, elem := range elems {
-		pubkey, err := bchec.ParsePubKey(elem, bchec.S256())
-		if err == nil {
-			pubkeys = append(pubkeys, pubkey)
-		}
-	}
-
-	if len(pubkeys) > 8 {
-		return iwallet.TransactionID(""), errors.New("too many pubkeys in redeem script")
-	}
-
 	for i := range tx.TxIn {
-		// The primary challenge for us here is matching signatures with public keys from
-		// the redeem script. The Bitcoin Cash schnorr signature specification requires
-		// that we enumerate the indexes of the public keys for which we are providing a
-		// signature. To do this we will validate the signature against the public keys
-		// to figure out the key index.
-		var (
-			parsedSigs []*bchec.Signature
-			escrowSigs []iwallet.EscrowSignature
-		)
-
-		for _, indexSig := range signatures {
-			for _, sig := range indexSig {
+		witness := [][]byte{{}}
+		for _, escrowSigs := range signatures {
+			for _, sig := range escrowSigs {
 				if sig.Index == i {
-					escrowSigs = append(escrowSigs, sig)
+					witness = append(witness, append(sig.Signature, byte(txscript.SigHashAll)))
 					break
 				}
 			}
-		}
-
-		for _, sig := range escrowSigs {
-			parsedSig, err := bchec.ParseSchnorrSignature(sig.Signature)
-			if err != nil {
-				return iwallet.TransactionID(""), err
-			}
-			parsedSigs = append(parsedSigs, parsedSig)
-		}
-
-		pubkeyIndexes := make([]int, 0, len(parsedSigs))
-
-		sigHash, err := txscript.CalcSignatureHash(redeemScript, txscript.NewTxSigHashes(tx), txscript.SigHashAll|txscript.SigHashForkID, tx, i, txn.From[i].Amount.Int64(), true)
-		if err != nil {
-			return iwallet.TransactionID(""), err
-		}
-
-		for _, parsedSig := range parsedSigs {
-			for i, key := range pubkeys {
-				if parsedSig.Verify(sigHash, key) {
-					pubkeyIndexes = append(pubkeyIndexes, i)
-					break
-				}
-			}
-		}
-
-		if len(pubkeyIndexes) != len(parsedSigs) {
-			return iwallet.TransactionID(""), errors.New("signatures do not match public keys")
-		}
-
-		var (
-			dummy = make([]byte, 1)
-			mask  = 0x80
-		)
-		for _, idx := range pubkeyIndexes {
-			dummy[0] |= byte(mask >> uint(8-(idx+1)))
-		}
-
-		builder := txscript.NewScriptBuilder()
-		builder.AddData(dummy)
-		for _, sig := range escrowSigs {
-			builder.AddData(append(sig.Signature, byte(txscript.SigHashAll|txscript.SigHashForkID)))
 		}
 
 		if timeLocked {
-			builder.AddOp(txscript.OP_1)
+			witness = append(witness, []byte{0x01})
 		}
 
-		builder.AddData(redeemScript)
-		scriptSig, err := builder.Script()
-		if err != nil {
-			return iwallet.TransactionID(""), err
-		}
-		tx.TxIn[i].SignatureScript = scriptSig
+		witness = append(witness, redeemScript)
+		tx.TxIn[i].Witness = witness
 	}
 
 	txid := iwallet.TransactionID(tx.TxHash().String())
 
 	var buf bytes.Buffer
-	if err := tx.BchEncode(&buf, wire.ProtocolVersion, wire.BaseEncoding); err != nil {
+	if err := tx.BtcEncode(&buf, wire.ProtocolVersion, wire.WitnessEncoding); err != nil {
 		return txid, err
 	}
 
@@ -582,7 +503,7 @@ func (w *BitcoinCashWallet) BuildAndSend(wtx iwallet.Tx, txn iwallet.Transaction
 		return w.DB.Update(func(dbtx database.Tx) error {
 			err := dbtx.Save(&database.UnconfirmedTransaction{
 				Timestamp: time.Now(),
-				Coin:      iwallet.CtBitcoinCash,
+				Coin:      iwallet.CtBitcoin,
 				TxBytes:   buf.Bytes(),
 				Txid:      tx.TxHash().String(),
 			})
@@ -601,7 +522,7 @@ func (w *BitcoinCashWallet) BuildAndSend(wtx iwallet.Tx, txn iwallet.Transaction
 // release the funds:
 //  - m of n signatures are provided (or)
 //  - timeout has passed and a signature for timeoutKey is provided.
-func (w *BitcoinCashWallet) CreateMultisigWithTimeout(keys []btcec.PublicKey, threshold int, timeout time.Duration, timeoutKey btcec.PublicKey) (iwallet.Address, []byte, error) {
+func (w *BitcoinWallet) CreateMultisigWithTimeout(keys []btcec.PublicKey, threshold int, timeout time.Duration, timeoutKey btcec.PublicKey) (iwallet.Address, []byte, error) {
 	if len(keys) < threshold {
 		return iwallet.Address{}, nil, fmt.Errorf("unable to generate multisig script with "+
 			"%d required signatures when there are only %d public "+
@@ -633,27 +554,28 @@ func (w *BitcoinCashWallet) CreateMultisigWithTimeout(keys []btcec.PublicKey, th
 	if err != nil {
 		return iwallet.Address{}, nil, err
 	}
-	addr, err := bchutil.NewAddressScriptHash(redeemScript, w.params())
+	witnessProgram := sha256.Sum256(redeemScript)
+	addr, err := btcutil.NewAddressWitnessScriptHash(witnessProgram[:], w.params())
 	if err != nil {
 		return iwallet.Address{}, nil, err
 	}
-	return iwallet.NewAddress(addr.String(), iwallet.CtBitcoinCash), redeemScript, nil
+	return iwallet.NewAddress(addr.String(), iwallet.CtBitcoin), redeemScript, nil
 }
 
 // ReleaseFundsAfterTimeout will release funds from the escrow. The signature will
 // be created using the timeoutKey.
-func (w *BitcoinCashWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet.Transaction, timeoutKey btcec.PrivateKey, redeemScript []byte) (iwallet.TransactionID, error) {
+func (w *BitcoinWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet.Transaction, timeoutKey btcec.PrivateKey, redeemScript []byte) (iwallet.TransactionID, error) {
 	tx := wire.NewMsgTx(2)
 	for _, from := range txn.From {
-		op := wire.OutPoint{}
-		if err := op.Deserialize(bytes.NewReader(from.ID)); err != nil {
+		op, err := derializeOutpoint(from.ID)
+		if err != nil {
 			return iwallet.TransactionID(""), err
 		}
-		input := wire.NewTxIn(&op, nil)
+		input := wire.NewTxIn(op, nil, nil)
 		tx.TxIn = append(tx.TxIn, input)
 	}
 	for _, to := range txn.To {
-		addr, err := bchutil.DecodeAddress(to.Address.String(), w.params())
+		addr, err := btcutil.DecodeAddress(to.Address.String(), w.params())
 		if err != nil {
 			return iwallet.TransactionID(""), err
 		}
@@ -669,7 +591,7 @@ func (w *BitcoinCashWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet
 	// BIP 69 sorting
 	txsort.InPlaceSort(tx)
 
-	privKey, _ := bchec.PrivKeyFromBytes(bchec.S256(), timeoutKey.Serialize())
+	privKey, _ := btcec.PrivKeyFromBytes(btcec.S256(), timeoutKey.Serialize())
 
 	locktime, err := lockTimeFromRedeemScript(redeemScript)
 	if err != nil {
@@ -680,25 +602,18 @@ func (w *BitcoinCashWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet
 	}
 
 	for i := range tx.TxIn {
-		sig, err := txscript.RawTxInSchnorrSignature(tx, i, redeemScript, txscript.SigHashAll, privKey, txn.From[i].Amount.Int64())
+		sig, err := txscript.RawTxInWitnessSignature(tx, txscript.NewTxSigHashes(tx), i, txn.From[i].Amount.Int64(), redeemScript, txscript.SigHashAll, privKey)
 		if err != nil {
 			return iwallet.TransactionID(""), err
 		}
-		builder := txscript.NewScriptBuilder()
-		builder.AddData(sig)
-		builder.AddOp(txscript.OP_0)
-		builder.AddData(redeemScript)
-		scriptSig, err := builder.Script()
-		if err != nil {
-			return iwallet.TransactionID(""), err
-		}
-		tx.TxIn[i].SignatureScript = scriptSig
+		witness := [][]byte{sig, {}, redeemScript}
+		tx.TxIn[i].Witness = witness
 	}
 
 	txid := iwallet.TransactionID(tx.TxHash().String())
 
 	var buf bytes.Buffer
-	if err := tx.BchEncode(&buf, wire.ProtocolVersion, wire.BaseEncoding); err != nil {
+	if err := tx.BtcEncode(&buf, wire.ProtocolVersion, wire.WitnessEncoding); err != nil {
 		return txid, err
 	}
 
@@ -711,7 +626,7 @@ func (w *BitcoinCashWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet
 		return w.DB.Update(func(dbtx database.Tx) error {
 			err := dbtx.Save(&database.UnconfirmedTransaction{
 				Timestamp: time.Now(),
-				Coin:      iwallet.CtBitcoinCash,
+				Coin:      iwallet.CtBitcoin,
 				TxBytes:   buf.Bytes(),
 				Txid:      tx.TxHash().String(),
 			})
@@ -725,7 +640,7 @@ func (w *BitcoinCashWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet
 	return txid, nil
 }
 
-func (w *BitcoinCashWallet) params() *chaincfg.Params {
+func (w *BitcoinWallet) params() *chaincfg.Params {
 	if w.testnet {
 		return &chaincfg.TestNet3Params
 	} else {
@@ -733,13 +648,13 @@ func (w *BitcoinCashWallet) params() *chaincfg.Params {
 	}
 }
 
-func (w *BitcoinCashWallet) feePerByte(level iwallet.FeeLevel) iwallet.Amount {
+func (w *BitcoinWallet) feePerByte(level iwallet.FeeLevel) iwallet.Amount {
 	return feeLevels[level]
 }
 
-func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Address, feeLevel iwallet.FeeLevel) (*wire.MsgTx, error) {
+func (w *BitcoinWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Address, feeLevel iwallet.FeeLevel) (*wire.MsgTx, error) {
 	// Check for dust
-	addr, err := bchutil.DecodeAddress(iaddr.String(), w.params())
+	addr, err := btcutil.DecodeAddress(iaddr.String(), w.params())
 	if err != nil {
 		return nil, err
 	}
@@ -747,14 +662,14 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 	if err != nil {
 		return nil, err
 	}
-	if txrules.IsDustAmount(bchutil.Amount(amount), len(script), txrules.DefaultRelayFeePerKb) {
+	if txrules.IsDustAmount(btcutil.Amount(amount), len(script), txrules.DefaultRelayFeePerKb) {
 		return nil, errors.New("dust output amount")
 	}
 
 	var (
-		additionalKeysByAddress = make(map[string]*bchutil.WIF)
-		additionalPrevScripts   = make(map[wire.OutPoint][]byte)
-		inVals                  = make(map[wire.OutPoint]int64)
+		additionalKeysByScript = make(map[wire.OutPoint]*btcutil.WIF)
+		additionalPrevScripts  = make(map[wire.OutPoint][]byte)
+		inVals                 = make(map[wire.OutPoint]int64)
 	)
 
 	// Create input source
@@ -767,15 +682,15 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 	for coin := range coinKeyMap {
 		allCoins = append(allCoins, coin)
 	}
-	inputSource := func(target bchutil.Amount) (total bchutil.Amount, inputs []*wire.TxIn, inputValues []bchutil.Amount, scripts [][]byte, err error) {
+	inputSource := func(target btcutil.Amount) (total btcutil.Amount, inputs []*wire.TxIn, inputValues []btcutil.Amount, scripts [][]byte, err error) {
 		coinSelector := coinset.MaxValueAgeCoinSelector{MaxInputs: 10000, MinChangeAmount: btcutil.Amount(0)}
-		coins, err := coinSelector.CoinSelect(btcutil.Amount(target.ToUnit(bchutil.AmountSatoshi)), allCoins)
+		coins, err := coinSelector.CoinSelect(btcutil.Amount(target.ToUnit(btcutil.AmountSatoshi)), allCoins)
 		if err != nil {
 			err = base.ErrInsufficientFunds
 			return
 		}
 		for _, c := range coins.Coins() {
-			total += bchutil.Amount(c.Value().ToUnit(btcutil.AmountSatoshi))
+			total += btcutil.Amount(c.Value().ToUnit(btcutil.AmountSatoshi))
 
 			h, herr := chainhash.NewHashFromStr(c.Hash().String())
 			if herr != nil {
@@ -785,7 +700,7 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 
 			outpoint := wire.NewOutPoint(h, c.Index())
 
-			in := wire.NewTxIn(outpoint, nil)
+			in := wire.NewTxIn(outpoint, nil, nil)
 			inputs = append(inputs, in)
 
 			key := coinKeyMap[c]
@@ -799,15 +714,15 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 				err = perr
 				return
 			}
-			wif, werr := bchutil.NewWIF(privKey, w.params(), true)
+			wif, werr := btcutil.NewWIF(privKey, w.params(), true)
 			if werr != nil {
 				err = werr
 				return
 			}
 
-			additionalKeysByAddress[string(c.PkScript())] = wif
+			additionalKeysByScript[*outpoint] = wif
 
-			address, derr := bchutil.DecodeAddress(string(c.PkScript()), w.params())
+			address, derr := btcutil.DecodeAddress(string(c.PkScript()), w.params())
 			if derr != nil {
 				err = derr
 				return
@@ -840,7 +755,7 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 			return nil, err
 		}
 
-		addr, err := bchutil.DecodeAddress(iaddr.String(), w.params())
+		addr, err := btcutil.DecodeAddress(iaddr.String(), w.params())
 		if err != nil {
 			return nil, err
 		}
@@ -853,7 +768,7 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 	}
 
 	// Build transaction
-	authoredTx, err := txauthor.NewUnsignedTransaction([]*wire.TxOut{out}, bchutil.Amount(feePerKB), inputSource, changeSource)
+	authoredTx, err := txauthor.NewUnsignedTransaction([]*wire.TxOut{out}, btcutil.Amount(feePerKB), inputSource, changeSource)
 	if err != nil {
 		return nil, err
 	}
@@ -862,31 +777,23 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 	txsort.InPlaceSort(authoredTx.Tx)
 
 	// Sign tx
-	getKey := txscript.KeyClosure(func(addr bchutil.Address) (*bchec.PrivateKey, bool, error) {
-		addrStr := addr.EncodeAddress()
-		wif := additionalKeysByAddress[addrStr]
-		return wif.PrivKey, wif.CompressPubKey, nil
-	})
-
-	getScript := txscript.ScriptClosure(func(addr bchutil.Address) ([]byte, error) {
-		return nil, nil
-	})
-
-	for i, txIn := range authoredTx.Tx.TxIn {
+	tx := authoredTx.Tx
+	for i, txIn := range tx.TxIn {
 		prevOutScript := additionalPrevScripts[txIn.PreviousOutPoint]
+		wif := additionalKeysByScript[txIn.PreviousOutPoint]
 
-		script, err := txscript.SignTxOutput(w.params(),
-			authoredTx.Tx, i, inVals[txIn.PreviousOutPoint], prevOutScript,
-			txscript.SigHashAll, getKey, getScript, txIn.SignatureScript)
+		script, err := txscript.WitnessSignature(tx, txscript.NewTxSigHashes(tx), i,
+			inVals[txIn.PreviousOutPoint], prevOutScript,
+			txscript.SigHashAll, wif.PrivKey, true)
 		if err != nil {
 			return nil, fmt.Errorf("failed to sign transaction: %s", err)
 		}
-		txIn.SignatureScript = script
+		tx.TxIn[i].Witness = script
 	}
-	return authoredTx.Tx, nil
+	return tx, nil
 }
 
-func (w *BitcoinCashWallet) keyToAddress(key *btchd.ExtendedKey) (iwallet.Address, error) {
+func (w *BitcoinWallet) keyToAddress(key *hdkeychain.ExtendedKey) (iwallet.Address, error) {
 	newKey, err := hdkeychain.NewKeyFromString(key.String())
 	if err != nil {
 		return iwallet.Address{}, err
@@ -895,7 +802,11 @@ func (w *BitcoinCashWallet) keyToAddress(key *btchd.ExtendedKey) (iwallet.Addres
 	if err != nil {
 		return iwallet.Address{}, err
 	}
-	return iwallet.NewAddress(addr.String(), iwallet.CtBitcoinCash), nil
+	witnessAddr, err := btcutil.NewAddressWitnessPubKeyHash(addr.ScriptAddress(), w.params())
+	if err != nil {
+		return iwallet.Address{}, err
+	}
+	return iwallet.NewAddress(witnessAddr.String(), iwallet.CtBitcoin), nil
 }
 
 func lockTimeFromRedeemScript(redeemScript []byte) (uint32, error) {
@@ -926,4 +837,18 @@ func lockTimeFromRedeemScript(redeemScript []byte) (uint32, error) {
 	}
 
 	return uint32(result), nil
+}
+
+func derializeOutpoint(ser []byte) (*wire.OutPoint, error) {
+	h, err := chainhash.NewHash(ser[:32])
+	if err != nil {
+		return nil, err
+	}
+	return wire.NewOutPoint(h, binary.LittleEndian.Uint32(ser[32:])), nil
+}
+
+func serializeOutpoint(op *wire.OutPoint) []byte {
+	i := make([]byte, 4)
+	binary.LittleEndian.PutUint32(i, op.Index)
+	return append(op.Hash[:], i...)
 }
