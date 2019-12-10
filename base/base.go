@@ -27,6 +27,7 @@ type WalletConfig struct {
 	Logger    *logging.Logger
 	Testnet   bool
 	ClientUrl string
+	FeeUrl    string
 }
 
 // DBTx satisfies the iwallet.Tx interface.
