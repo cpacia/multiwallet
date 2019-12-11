@@ -239,25 +239,6 @@ func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.
 		addrStrs = append(addrStrs, addr.String())
 	}
 
-	err := c.socket.On("bitcoind/addresstxid", func(h *gosocketio.Channel, arg interface{}) {
-		m, ok := arg.(map[string]interface{})
-		if !ok {
-			return
-		}
-		for _, v := range m {
-			txid, ok := v.(string)
-			if !ok {
-				return
-			}
-			tx, err := c.GetTransaction(iwallet.TransactionID(txid))
-			if err == nil {
-				sub.Out <- tx
-			}
-		}
-	})
-	if err != nil {
-		return nil, err
-	}
 	args := []interface{}{
 		"bitcoind/addresstxid",
 		addrStrs,
@@ -325,16 +306,6 @@ func (c *BlockbookClient) SubscribeBlocks() (*base.BlockSubscription, error) {
 		close(sub.Out)
 	}
 
-	err := c.socket.On("bitcoind/hashblock", func(h *gosocketio.Channel, arg interface{}) {
-		info, err := c.GetBlockchainInfo()
-		if err != nil {
-			return
-		}
-		sub.Out <- info
-	})
-	if err != nil {
-		return nil, err
-	}
 	if err := c.socket.Emit("subscribe", protocol.ToArgArray("bitcoind/hashblock")); err != nil {
 		return nil, err
 	}
@@ -375,8 +346,12 @@ func (c *BlockbookClient) connectSocket() {
 
 	s, err := gosocketio.Dial(socketUrl+"/socket.io/", GetDefaultWebsocketTransport(nil))
 	if err == nil {
-		c.socket = s
-		return
+		err = c.listenEvents(s)
+		if err == nil {
+			c.socket = s
+			return
+		}
+		s.Close()
 	}
 
 	go func() {
@@ -390,10 +365,57 @@ func (c *BlockbookClient) connectSocket() {
 					return
 				}
 			}
+			err = c.listenEvents(s)
+			if err != nil {
+				s.Close()
+				select {
+				case <-time.After(bo.NextBackOff()):
+					continue
+				case <-c.shutdown:
+					return
+				}
+			}
 			c.socket = s
 			break
 		}
 	}()
+}
+
+func (c *BlockbookClient) listenEvents(socket *gosocketio.Client) error {
+	err := socket.On("bitcoind/addresstxid", func(h *gosocketio.Channel, arg interface{}) {
+		m, ok := arg.(map[string]interface{})
+		if !ok {
+			return
+		}
+		for _, v := range m {
+			txid, ok := v.(string)
+			if !ok {
+				return
+			}
+			tx, err := c.GetTransaction(iwallet.TransactionID(txid))
+			if err == nil {
+				c.subMtx.Lock()
+				for _, sub := range c.txSubs {
+					sub.Out <- tx
+				}
+				c.subMtx.Unlock()
+			}
+		}
+	})
+	if err != nil {
+		return err
+	}
+	return socket.On("bitcoind/hashblock", func(h *gosocketio.Channel, arg interface{}) {
+		info, err := c.GetBlockchainInfo()
+		if err != nil {
+			return
+		}
+		c.subMtx.Lock()
+		for _, sub := range c.blockSubs {
+			sub.Out <- info
+		}
+		c.subMtx.Unlock()
+	})
 }
 
 type transaction struct {
