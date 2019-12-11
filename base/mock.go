@@ -158,8 +158,8 @@ func (m *MockChainClient) SubscribeTransactions(addrs []iwallet.Address) (*Trans
 			}
 			close(closeChan)
 		},
-		Subscribe:   make(chan iwallet.Address),
-		Unsubscribe: make(chan iwallet.Address),
+		Subscribe:   make(chan []iwallet.Address),
+		Unsubscribe: make(chan []iwallet.Address),
 	}
 
 	for _, addr := range addrs {
@@ -171,13 +171,17 @@ func (m *MockChainClient) SubscribeTransactions(addrs []iwallet.Address) (*Trans
 			select {
 			case <-closeChan:
 				return
-			case addr := <-sub.Subscribe:
+			case addrs := <-sub.Subscribe:
 				m.mtx.Lock()
-				m.txSubs[addr] = sub
+				for _, addr := range addrs {
+					m.txSubs[addr] = sub
+				}
 				m.mtx.Unlock()
-			case addr := <-sub.Unsubscribe:
+			case addrs := <-sub.Unsubscribe:
 				m.mtx.Lock()
-				delete(m.txSubs, addr)
+				for _, addr := range addrs {
+					delete(m.txSubs, addr)
+				}
 				m.mtx.Unlock()
 			}
 		}

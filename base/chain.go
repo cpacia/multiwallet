@@ -85,7 +85,7 @@ type removeUnconfirmed struct {
 }
 
 type addWatchOnly struct {
-	addr iwallet.Address
+	addrs []iwallet.Address
 }
 
 type updateAddrSubscription struct {
@@ -223,13 +223,11 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 				delete(cm.unconfirmedTxs, msg.txid)
 
 			case *addWatchOnly:
-				cm.watchOnly = append(cm.watchOnly, msg.addr)
-				transactionSub.Subscribe <- msg.addr
+				cm.watchOnly = append(cm.watchOnly, msg.addrs...)
+				transactionSub.Subscribe <- msg.addrs
 
 			case *updateAddrSubscription:
-				for _, addr := range msg.addrs {
-					transactionSub.Subscribe <- addr
-				}
+				transactionSub.Subscribe <- msg.addrs
 			}
 		case tx := <-transactionSub.Out:
 			if tx.Height == 0 {
@@ -351,9 +349,9 @@ func (cm *ChainManager) BestBlock() iwallet.BlockInfo {
 //
 // Note we use a separate goroutine here to avoid a potential deadlock
 // if the caller has an open database transaction.
-func (cm *ChainManager) AddWatchOnly(addr iwallet.Address) {
+func (cm *ChainManager) AddWatchOnly(addrs ...iwallet.Address) {
 	go func() {
-		cm.msgChan <- &addWatchOnly{addr: addr}
+		cm.msgChan <- &addWatchOnly{addrs: addrs}
 	}()
 }
 

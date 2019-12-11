@@ -177,12 +177,24 @@ func (w *WalletBase) OpenWallet() error {
 		return err
 	}
 
-	blockSub, err := w.ChainClient.SubscribeBlocks()
-	if err != nil {
-		return err
-	}
-
 	go func() {
+		var (
+			blockSub *BlockSubscription
+			bo       = expbackoff.NewExponentialBackOff()
+		)
+		for {
+			blockSub, err = w.ChainClient.SubscribeBlocks()
+			if err != nil {
+				select {
+				case <-time.After(bo.NextBackOff()):
+					continue
+				case <-w.Done:
+					return
+				}
+			}
+			break
+		}
+
 		var (
 			blockSubs []chan iwallet.BlockInfo
 			txSubs    []chan iwallet.Transaction
@@ -415,39 +427,45 @@ func checkIfStxoIsConfirmed(txid iwallet.TransactionID, txMap map[iwallet.Transa
 //
 // Note a database transaction is used here. Same rules of Commit() and
 // Rollback() apply.
-func (w *WalletBase) WatchAddress(tx iwallet.Tx, addr iwallet.Address) error {
+func (w *WalletBase) WatchAddress(tx iwallet.Tx, addrs ...iwallet.Address) error {
 	dbtx := tx.(*DBTx)
 	dbtx.OnCommit = func() error {
+		var updated []iwallet.Address
 		err := w.DB.Update(func(tx database.Tx) error {
-			var addrRecord database.AddressRecord
-			err := tx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Where("addr=?", addr.String()).First(&addrRecord).Error
-			if err == nil {
-				// This is a wallet address. Likely from
-				// an address request order.
-				return nil
-			}
+			for _, addr := range addrs {
+				var addrRecord database.AddressRecord
+				err := tx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Where("addr=?", addr.String()).First(&addrRecord).Error
+				if err == nil {
+					// This is a wallet address. Likely from
+					// an address request order.
+					continue
+				}
 
-			var watchedRecord database.WatchedAddressRecord
-			err = tx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Where("addr=?", addr.String()).First(&watchedRecord).Error
-			if err == nil {
-				// We've previously saved this address before.
-				// No need to do anything new.
-				return nil
-			}
+				var watchedRecord database.WatchedAddressRecord
+				err = tx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Where("addr=?", addr.String()).First(&watchedRecord).Error
+				if err == nil {
+					// We've previously saved this address before.
+					// No need to do anything new.
+					continue
+				}
 
-			err = tx.Save(&database.WatchedAddressRecord{
-				Addr: addr.String(),
-				Coin: w.CoinType.CurrencyCode(),
-			})
-			if err != nil {
-				return err
+				err = tx.Save(&database.WatchedAddressRecord{
+					Addr: addr.String(),
+					Coin: w.CoinType.CurrencyCode(),
+				})
+				if err != nil {
+					return err
+				}
+				updated = append(updated, addr)
 			}
 			return nil
 		})
 		if err != nil {
 			return err
 		}
-		w.ChainManager.AddWatchOnly(addr)
+		if len(updated) > 0 {
+			w.ChainManager.AddWatchOnly(updated...)
+		}
 		return nil
 	}
 	return nil

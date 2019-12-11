@@ -9,7 +9,6 @@ import (
 	"fmt"
 	gosocketio "github.com/OpenBazaar/golang-socketio"
 	"github.com/OpenBazaar/golang-socketio/protocol"
-	"github.com/OpenBazaar/golang-socketio/transport"
 	"github.com/btcsuite/btcutil"
 	"github.com/cenkalti/backoff"
 	"github.com/cpacia/multiwallet/base"
@@ -33,6 +32,7 @@ type BlockbookClient struct {
 	clientUrl string
 	coinType  iwallet.CoinType
 	subMtx    sync.Mutex
+	shutdown  chan struct{}
 	txSubs    map[int32]*base.TransactionSubscription
 	blockSubs map[int32]*base.BlockSubscription
 }
@@ -46,6 +46,7 @@ func NewBlockbookClient(url string, coinType iwallet.CoinType) (*BlockbookClient
 		},
 		clientUrl: url,
 		coinType:  coinType,
+		shutdown:  make(chan struct{}),
 		subMtx:    sync.Mutex{},
 		txSubs:    make(map[int32]*base.TransactionSubscription),
 		blockSubs: make(map[int32]*base.BlockSubscription),
@@ -229,8 +230,8 @@ func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.
 
 	sub := &base.TransactionSubscription{
 		Out:         make(chan iwallet.Transaction),
-		Subscribe:   make(chan iwallet.Address),
-		Unsubscribe: make(chan iwallet.Address),
+		Subscribe:   make(chan []iwallet.Address),
+		Unsubscribe: make(chan []iwallet.Address),
 	}
 
 	addrStrs := make([]string, 0, len(addrs))
@@ -283,10 +284,16 @@ func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.
 			select {
 			case <-subClose:
 				return
-			case addr := <-sub.Subscribe:
+			case <-c.shutdown:
+				return
+			case addrs := <-sub.Subscribe:
+				addrStrs := make([]string, 0, len(addrs))
+				for _, addr := range addrs {
+					addrStrs = append(addrStrs, addr.String())
+				}
 				args := []interface{}{
 					"bitcoind/addresstxid",
-					[]string{addr.String()},
+					addrStrs,
 				}
 				c.socket.Emit("subscribe", args)
 			}
@@ -355,7 +362,10 @@ func (c *BlockbookClient) Close() error {
 	c.subMtx.Lock()
 	defer c.subMtx.Unlock()
 
-	c.socket.Close()
+	close(c.shutdown)
+	if c.socket != nil {
+		c.socket.Close()
+	}
 	return nil
 }
 
@@ -363,7 +373,7 @@ func (c *BlockbookClient) connectSocket() {
 	bo := backoff.NewExponentialBackOff()
 	socketUrl := strings.Replace(strings.TrimSuffix(c.clientUrl, "/api"), "https://", "wss://", 1)
 
-	s, err := gosocketio.Dial(socketUrl+"/socket.io/", transport.GetDefaultWebsocketTransport())
+	s, err := gosocketio.Dial(socketUrl+"/socket.io/", GetDefaultWebsocketTransport(nil))
 	if err == nil {
 		c.socket = s
 		return
@@ -371,10 +381,14 @@ func (c *BlockbookClient) connectSocket() {
 
 	go func() {
 		for {
-			s, err := gosocketio.Dial(socketUrl+"/socket.io/", transport.GetDefaultWebsocketTransport())
+			s, err := gosocketio.Dial(socketUrl+"/socket.io/", GetDefaultWebsocketTransport(nil))
 			if err != nil {
-				time.Sleep(bo.NextBackOff())
-				continue
+				select {
+				case <-time.After(bo.NextBackOff()):
+					continue
+				case <-c.shutdown:
+					return
+				}
 			}
 			c.socket = s
 			break

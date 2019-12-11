@@ -9,8 +9,8 @@ type BlockSubscription struct {
 
 type TransactionSubscription struct {
 	Out         chan iwallet.Transaction
-	Subscribe   chan iwallet.Address
-	Unsubscribe chan iwallet.Address
+	Subscribe   chan []iwallet.Address
+	Unsubscribe chan []iwallet.Address
 	Close       func()
 }
 

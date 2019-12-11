@@ -27,6 +27,7 @@ type BchdClient struct {
 	clientUrl string
 	conn      *grpc.ClientConn
 	subMtx    sync.Mutex
+	shutdown  chan struct{}
 	txSubs    map[int32]*base.TransactionSubscription
 	blockSubs map[int32]*base.BlockSubscription
 }
@@ -37,6 +38,7 @@ func NewBchdClient(url string) (*BchdClient, error) {
 	client := &BchdClient{
 		clientUrl: url,
 		subMtx:    sync.Mutex{},
+		shutdown:  make(chan struct{}),
 		txSubs:    make(map[int32]*base.TransactionSubscription),
 		blockSubs: make(map[int32]*base.BlockSubscription),
 	}
@@ -165,8 +167,8 @@ func (c *BchdClient) SubscribeTransactions(addrs []iwallet.Address) (*base.Trans
 
 	sub := &base.TransactionSubscription{
 		Out:         make(chan iwallet.Transaction),
-		Subscribe:   make(chan iwallet.Address),
-		Unsubscribe: make(chan iwallet.Address),
+		Subscribe:   make(chan []iwallet.Address),
+		Unsubscribe: make(chan []iwallet.Address),
 	}
 
 	addrStrs := make([]string, 0, len(addrs))
@@ -208,18 +210,27 @@ func (c *BchdClient) SubscribeTransactions(addrs []iwallet.Address) (*base.Trans
 			select {
 			case <-subClose:
 				return
-			case addr := <-sub.Subscribe:
+			case addrs := <-sub.Subscribe:
+				addrStrs := make([]string, 0, len(addrs))
+				for _, addr := range addrs {
+					addrStrs = append(addrStrs, addr.String())
+				}
+
 				stream.Send(&pb.SubscribeTransactionsRequest{
 					Subscribe: &pb.TransactionFilter{
-						Addresses: []string{addr.String()},
+						Addresses: addrStrs,
 					},
 					IncludeMempool: true,
 					IncludeInBlock: true,
 				})
-			case addr := <-sub.Unsubscribe:
+			case addrs := <-sub.Unsubscribe:
+				addrStrs := make([]string, 0, len(addrs))
+				for _, addr := range addrs {
+					addrStrs = append(addrStrs, addr.String())
+				}
 				stream.Send(&pb.SubscribeTransactionsRequest{
 					Unsubscribe: &pb.TransactionFilter{
-						Addresses: []string{addr.String()},
+						Addresses: addrStrs,
 					},
 				})
 			}
@@ -321,6 +332,7 @@ func (c *BchdClient) Close() error {
 	c.subMtx.Lock()
 	defer c.subMtx.Unlock()
 
+	close(c.shutdown)
 	if c.conn != nil {
 		return c.conn.Close()
 	}
@@ -343,8 +355,12 @@ func (c *BchdClient) connect() {
 		for {
 			conn, err := grpc.Dial(c.clientUrl, opts...)
 			if err != nil {
-				time.Sleep(bo.NextBackOff())
-				continue
+				select {
+				case <-time.After(bo.NextBackOff()):
+					continue
+				case <-c.shutdown:
+					return
+				}
 			}
 			c.conn = conn
 			c.client = pb.NewBchrpcClient(conn)
