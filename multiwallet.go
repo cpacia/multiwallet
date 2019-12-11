@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cpacia/multiwallet/base"
+	"github.com/cpacia/multiwallet/bitcoin"
 	"github.com/cpacia/multiwallet/bitcoincash"
 	"github.com/cpacia/multiwallet/database"
 	"github.com/cpacia/multiwallet/database/sqlitedb"
@@ -78,6 +79,22 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 				clientUrl = "bchd-testnet.greyh.at:18335"
 			}
 			w, err := bitcoincash.NewBitcoinCashWallet(&base.WalletConfig{
+				Logger:    logger,
+				DB:        db,
+				ClientUrl: clientUrl,
+				Testnet:   cfg.UseTestnet,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			multiwallet[coinType] = w
+		case iwallet.CtBitcoin:
+			clientUrl := "https://btc.blockbook.api.openbazaar.org/api"
+			if cfg.UseTestnet {
+				clientUrl = "https://tbtc.blockbook.api.openbazaar.org/api"
+			}
+			w, err := bitcoin.NewBitcoinWallet(&base.WalletConfig{
 				Logger:    logger,
 				DB:        db,
 				ClientUrl: clientUrl,

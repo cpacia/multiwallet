@@ -21,7 +21,7 @@ type ChainClient interface {
 
 	GetTransaction(id iwallet.TransactionID) (iwallet.Transaction, error)
 
-	IsBlockInMainChain(id iwallet.BlockID) (bool, error)
+	IsBlockInMainChain(block iwallet.BlockInfo) (bool, error)
 
 	SubscribeTransactions(addrs []iwallet.Address) (*TransactionSubscription, error)
 

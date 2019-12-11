@@ -22,7 +22,7 @@ import (
 	"github.com/btcsuite/btcwallet/wallet/txrules"
 	"github.com/btcsuite/btcwallet/wallet/txsizes"
 	"github.com/cpacia/multiwallet/base"
-	"github.com/cpacia/multiwallet/client/bchd"
+	"github.com/cpacia/multiwallet/client/blockbook"
 	"github.com/cpacia/multiwallet/database"
 	iwallet "github.com/cpacia/wallet-interface"
 	"net/http"
@@ -58,7 +58,7 @@ func NewBitcoinWallet(cfg *base.WalletConfig) (*BitcoinWallet, error) {
 		feeUrl:  cfg.FeeUrl,
 	}
 
-	chainClient, err := bchd.NewBchdClient(cfg.ClientUrl)
+	chainClient, err := blockbook.NewBlockbookClient(cfg.ClientUrl, iwallet.CtBitcoin)
 	if err != nil {
 		return nil, err
 	}

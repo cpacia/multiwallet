@@ -123,7 +123,7 @@ func (m *MockChainClient) GetTransaction(id iwallet.TransactionID) (iwallet.Tran
 	return tx, nil
 }
 
-func (m *MockChainClient) IsBlockInMainChain(id iwallet.BlockID) (bool, error) {
+func (m *MockChainClient) IsBlockInMainChain(blk iwallet.BlockInfo) (bool, error) {
 	m.mtx.RLock()
 	defer m.mtx.RUnlock()
 
@@ -132,7 +132,7 @@ func (m *MockChainClient) IsBlockInMainChain(id iwallet.BlockID) (bool, error) {
 	}
 
 	for _, block := range m.blocks {
-		if block.BlockID == id {
+		if block.BlockID == blk.BlockID {
 			return true, nil
 		}
 	}

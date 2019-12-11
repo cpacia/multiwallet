@@ -315,7 +315,7 @@ func (cm *ChainManager) initializeChain(currentBestBlock iwallet.BlockInfo, unco
 
 	inMainChain := true
 	if currentBestBlock.Height > 0 {
-		inMainChain, err = cm.client.IsBlockInMainChain(currentBestBlock.BlockID)
+		inMainChain, err = cm.client.IsBlockInMainChain(currentBestBlock)
 		if err != nil {
 			return nil, nil, 0, err
 		}

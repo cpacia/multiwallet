@@ -25,7 +25,7 @@ import (
 func newTestWallet() (*BitcoinWallet, error) {
 	w := &BitcoinWallet{
 		testnet: true,
-		feeUrl: "https://btc.fees.openbazaar.org/",
+		feeUrl:  "https://btc.fees.openbazaar.org/",
 	}
 
 	httpmock.RegisterResponder("GET", w.feeUrl,
