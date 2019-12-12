@@ -11,7 +11,7 @@ require (
 	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.0.0
 	github.com/cenkalti/backoff v2.2.1+incompatible
-	github.com/cpacia/proxyclient v0.1.0
+	github.com/cpacia/proxyclient v0.0.0-20191212063311-f03265f1fade
 	github.com/cpacia/wallet-interface v0.0.0-20191211190928-d7ad7fbaf4ec
 	github.com/gcash/bchd v0.15.2
 	github.com/gcash/bchutil v0.0.0-20191012211144-98e73ec336ba
