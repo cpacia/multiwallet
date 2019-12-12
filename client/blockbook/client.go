@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/cenkalti/backoff"
 	"github.com/cpacia/multiwallet/base"
+	"github.com/cpacia/proxyclient"
 	iwallet "github.com/cpacia/wallet-interface"
 	"io/ioutil"
 	"math/rand"
@@ -40,10 +41,12 @@ type BlockbookClient struct {
 // NewBlockbookClient returns a new BlockbookClient connected to the provided URL.
 func NewBlockbookClient(url string, coinType iwallet.CoinType) (*BlockbookClient, error) {
 	url = strings.TrimSuffix(url, "/")
+
+	httpClient := proxyclient.NewHttpClient()
+	httpClient.Timeout = RequestTimeout
+
 	client := &BlockbookClient{
-		client: &http.Client{
-			Timeout: RequestTimeout,
-		},
+		client:    httpClient,
 		clientUrl: url,
 		coinType:  coinType,
 		shutdown:  make(chan struct{}),
@@ -344,7 +347,7 @@ func (c *BlockbookClient) connectSocket() {
 	bo := backoff.NewExponentialBackOff()
 	socketUrl := strings.Replace(strings.TrimSuffix(c.clientUrl, "/api"), "https://", "wss://", 1)
 
-	s, err := gosocketio.Dial(socketUrl+"/socket.io/", GetDefaultWebsocketTransport(nil))
+	s, err := gosocketio.Dial(socketUrl+"/socket.io/", GetDefaultWebsocketTransport())
 	if err == nil {
 		err = c.listenEvents(s)
 		if err == nil {
@@ -356,7 +359,7 @@ func (c *BlockbookClient) connectSocket() {
 
 	go func() {
 		for {
-			s, err := gosocketio.Dial(socketUrl+"/socket.io/", GetDefaultWebsocketTransport(nil))
+			s, err := gosocketio.Dial(socketUrl+"/socket.io/", GetDefaultWebsocketTransport())
 			if err != nil {
 				select {
 				case <-time.After(bo.NextBackOff()):

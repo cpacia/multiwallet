@@ -24,8 +24,8 @@ import (
 	"github.com/cpacia/multiwallet/base"
 	"github.com/cpacia/multiwallet/client/blockbook"
 	"github.com/cpacia/multiwallet/database"
+	"github.com/cpacia/proxyclient"
 	iwallet "github.com/cpacia/wallet-interface"
-	"net/http"
 	"time"
 )
 
@@ -684,7 +684,9 @@ func (w *BitcoinWallet) feePerByte(level iwallet.FeeLevel) (iwallet.Amount, erro
 		return selectFee(level, *w.feeCache), nil
 	}
 
-	resp, err := http.Get(w.feeUrl)
+	client := proxyclient.NewHttpClient()
+
+	resp, err := client.Get(w.feeUrl)
 	if err != nil {
 		return feeLevels[level], nil
 	}

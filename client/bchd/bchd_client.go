@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/cenkalti/backoff"
 	"github.com/cpacia/multiwallet/base"
+	"github.com/cpacia/proxyclient"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/gcash/bchd/bchrpc/pb"
 	"github.com/gcash/bchd/chaincfg/chainhash"
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 	"math/rand"
+	"net"
 	"sync"
 	"time"
 )
@@ -342,6 +344,15 @@ func (c *BchdClient) Close() error {
 func (c *BchdClient) connect() {
 	tlsOption := grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(nil, ""))
 	opts := []grpc.DialOption{tlsOption}
+
+	proxyDialer, err := proxyclient.DialContextFunc()
+	if err == nil {
+		dialContext := func(ctx context.Context, addr string)(net.Conn, error) {
+			return proxyDialer(ctx, "tcp", addr)
+		}
+
+		opts = append(opts, grpc.WithContextDialer(dialContext))
+	}
 
 	conn, err := grpc.Dial(c.clientUrl, opts...)
 	if err == nil {

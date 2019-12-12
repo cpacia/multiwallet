@@ -3,8 +3,8 @@ package blockbook
 import (
 	"errors"
 	tp "github.com/OpenBazaar/golang-socketio/transport"
+	"github.com/cpacia/proxyclient"
 	"github.com/gorilla/websocket"
-	"golang.org/x/net/proxy"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -93,14 +93,13 @@ type WebsocketTransport struct {
 	BufferSize int
 
 	RequestHeader http.Header
-
-	proxyDialer proxy.Dialer
 }
 
 func (wst *WebsocketTransport) Connect(url string) (conn tp.Connection, err error) {
 	dial := net.Dial
-	if wst.proxyDialer != nil {
-		dial = wst.proxyDialer.Dial
+	proxyDial, err := proxyclient.DialFunc()
+	if err == nil {
+		dial = proxyDial
 	}
 	dialer := websocket.Dialer{NetDial: dial}
 	socket, _, err := dialer.Dial(url, wst.RequestHeader)
@@ -136,13 +135,12 @@ func (wst *WebsocketTransport) Serve(w http.ResponseWriter, r *http.Request) {}
 /**
 Returns websocket connection with default params
 */
-func GetDefaultWebsocketTransport(proxyDialer proxy.Dialer) *WebsocketTransport {
+func GetDefaultWebsocketTransport() *WebsocketTransport {
 	return &WebsocketTransport{
 		PingInterval:   WsDefaultPingInterval,
 		PingTimeout:    WsDefaultPingTimeout,
 		ReceiveTimeout: WsDefaultReceiveTimeout,
 		SendTimeout:    WsDefaultSendTimeout,
 		BufferSize:     WsDefaultBufferSize,
-		proxyDialer:    proxyDialer,
 	}
 }

@@ -11,6 +11,7 @@ require (
 	github.com/btcsuite/btcwallet/wallet/txrules v1.0.0
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.0.0
 	github.com/cenkalti/backoff v2.2.1+incompatible
+	github.com/cpacia/proxyclient v0.1.0
 	github.com/cpacia/wallet-interface v0.0.0-20191211190928-d7ad7fbaf4ec
 	github.com/gcash/bchd v0.15.2
 	github.com/gcash/bchutil v0.0.0-20191012211144-98e73ec336ba
@@ -21,7 +22,7 @@ require (
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	golang.org/x/crypto v0.0.0-20190923035154-9ee001bba392
-	golang.org/x/net v0.0.0-20190923162816-aa69164e4478
+	golang.org/x/net v0.0.0-20191209160850-c0dbc17a3553
 	google.golang.org/grpc v1.25.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 )
