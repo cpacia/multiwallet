@@ -23,27 +23,21 @@ var (
 	ErrUnsuppertedCoin = errors.New("multiwallet does not contain an implementation for the given coin")
 	fileLogFormat      = logging.MustStringFormatter(`%{time:2006-01-02 T15:04:05.000} [%{level}] [%{module}] %{message}`)
 	stdoutLogFormat    = logging.MustStringFormatter(`%{color:reset}%{color}%{time:15:04:05} [%{level}] [%{module}] %{message}`)
-	logLevelMap        = map[string]logging.Level{
-		"debug":    logging.DEBUG,
-		"info":     logging.INFO,
-		"notice":   logging.NOTICE,
-		"warning":  logging.WARNING,
-		"error":    logging.ERROR,
-		"critical": logging.CRITICAL,
-	}
 )
 
 type Multiwallet map[iwallet.CoinType]iwallet.Wallet
 
-func NewMultiwallet(cfg *Config) (Multiwallet, error) {
+func NewMultiwallet(opts ...Option) (Multiwallet, error) {
+	var cfg Config
+	if err := cfg.Apply(append([]Option{Defaults}, opts...)...); err != nil {
+		return nil, err
+	}
+
 	logger := logging.MustGetLogger("multiwallet")
 
 	backendStdout := logging.NewLogBackend(os.Stdout, "", 0)
 	backendStdoutFormatter := logging.NewBackendFormatter(backendStdout, stdoutLogFormat)
 
-	if cfg.LogLevel == "" {
-		cfg.LogLevel = "info"
-	}
 	if cfg.LogDir != "" {
 		rotator := &lumberjack.Logger{
 			Filename:   path.Join(cfg.LogDir, defaultLogFilename),
@@ -55,11 +49,11 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 		backendFile := logging.NewLogBackend(rotator, "", 0)
 		backendFileFormatter := logging.NewBackendFormatter(backendFile, fileLogFormat)
 		leveledBackend := logging.MultiLogger(backendStdoutFormatter, backendFileFormatter)
-		leveledBackend.SetLevel(logLevelMap[strings.ToLower(cfg.LogLevel)], "")
+		leveledBackend.SetLevel(cfg.LogLevel, "")
 		logger.SetBackend(leveledBackend)
 	} else {
 		leveledBackend := logging.AddModuleLevel(backendStdoutFormatter)
-		leveledBackend.SetLevel(logLevelMap[strings.ToLower(cfg.LogLevel)], "")
+		leveledBackend.SetLevel(cfg.LogLevel, "")
 		logger.SetBackend(leveledBackend)
 	}
 
@@ -76,9 +70,9 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 	for _, coinType := range cfg.Wallets {
 		switch coinType {
 		case iwallet.CtBitcoinCash:
-			clientUrl := "bchd.greyh.at:8335"
+			clientUrl := cfg.WalletAPIs[coinType].Mainnet
 			if cfg.UseTestnet {
-				clientUrl = "bchd-testnet.greyh.at:18335"
+				clientUrl = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := bitcoincash.NewBitcoinCashWallet(&base.WalletConfig{
 				Logger:    logger,
@@ -92,9 +86,9 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 
 			multiwallet[coinType] = w
 		case iwallet.CtBitcoin:
-			clientUrl := "https://btc.blockbook.api.openbazaar.org/api"
+			clientUrl := cfg.WalletAPIs[coinType].Mainnet
 			if cfg.UseTestnet {
-				clientUrl = "https://tbtc.blockbook.api.openbazaar.org/api"
+				clientUrl = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := bitcoin.NewBitcoinWallet(&base.WalletConfig{
 				Logger:    logger,
@@ -109,9 +103,9 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 
 			multiwallet[coinType] = w
 		case iwallet.CtLitecoin:
-			clientUrl := "https://ltc.blockbook.api.openbazaar.org/api"
+			clientUrl := cfg.WalletAPIs[coinType].Mainnet
 			if cfg.UseTestnet {
-				clientUrl = "https://tltc.blockbook.api.openbazaar.org/api"
+				clientUrl = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := litecoin.NewLitecoinWallet(&base.WalletConfig{
 				Logger:    logger,
@@ -125,9 +119,9 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 
 			multiwallet[coinType] = w
 		case iwallet.CtZCash:
-			clientUrl := "https://zec.blockbook.api.openbazaar.org/api"
+			clientUrl := cfg.WalletAPIs[coinType].Mainnet
 			if cfg.UseTestnet {
-				clientUrl = "https://tzec.blockbook.api.openbazaar.org/api"
+				clientUrl = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := zcash.NewZCashWallet(&base.WalletConfig{
 				Logger:    logger,
