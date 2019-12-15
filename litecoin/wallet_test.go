@@ -6,30 +6,26 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"github.com/btcsuite/btcd/btcec"
-	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/cpacia/multiwallet/base"
 	"github.com/cpacia/multiwallet/database"
 	"github.com/cpacia/multiwallet/database/sqlitedb"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/jarcoal/httpmock"
+	"github.com/ltcsuite/ltcd/chaincfg"
+	"github.com/ltcsuite/ltcd/chaincfg/chainhash"
+	"github.com/ltcsuite/ltcd/txscript"
+	"github.com/ltcsuite/ltcd/wire"
+	"github.com/ltcsuite/ltcutil"
 	"github.com/op/go-logging"
 	"testing"
 	"time"
 )
 
-func newTestWallet() (*BitcoinWallet, error) {
-	w := &BitcoinWallet{
+func newTestWallet() (*LitecoinWallet, error) {
+	w := &LitecoinWallet{
 		testnet: true,
-		feeUrl:  "https://btc.fees.openbazaar.org/",
 	}
-
-	httpmock.RegisterResponder("GET", w.feeUrl,
-		httpmock.NewStringResponder(200, `{"priority": 50, "normal": 25, "economic": 12}`))
 
 	chainClient := base.NewMockChainClient()
 
@@ -44,7 +40,7 @@ func newTestWallet() (*BitcoinWallet, error) {
 	w.ChainClient = chainClient
 	w.DB = db
 	w.Logger = logging.MustGetLogger("bchtest")
-	w.CoinType = iwallet.CtBitcoin
+	w.CoinType = iwallet.CtLitecoin
 	w.Done = make(chan struct{})
 	w.AddressFunc = w.keyToAddress
 
@@ -63,17 +59,17 @@ func newTestWallet() (*BitcoinWallet, error) {
 	return w, nil
 }
 
-func TestBitcoinWallet_ValidateAddress(t *testing.T) {
+func TestLitecoinWallet_ValidateAddress(t *testing.T) {
 	tests := []struct {
 		address iwallet.Address
 		valid   bool
 	}{
 		{
-			address: iwallet.NewAddress("abc", iwallet.CtBitcoin),
+			address: iwallet.NewAddress("abc", iwallet.CtLitecoin),
 			valid:   false,
 		},
 		{
-			address: iwallet.NewAddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", iwallet.CtBitcoin),
+			address: iwallet.NewAddress("tltc1q0wzfm6yz9gxght997y38mfvc9lj25hrj2lwdtq", iwallet.CtLitecoin),
 			valid:   true,
 		},
 	}
@@ -92,7 +88,7 @@ func TestBitcoinWallet_ValidateAddress(t *testing.T) {
 	}
 }
 
-func TestBitcoinWallet_IsDust(t *testing.T) {
+func TestLitecoinWallet_IsDust(t *testing.T) {
 	tests := []struct {
 		amount iwallet.Amount
 		isDust bool
@@ -122,7 +118,7 @@ func TestBitcoinWallet_IsDust(t *testing.T) {
 	}
 }
 
-func TestBitcoinWallet_EstimateSpendFee(t *testing.T) {
+func TestLitecoinWallet_EstimateSpendFee(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 
@@ -135,7 +131,7 @@ func TestBitcoinWallet_EstimateSpendFee(t *testing.T) {
 		{
 			amount:   iwallet.NewAmount(500000),
 			feeLevel: iwallet.FlEconomic,
-			expected: iwallet.NewAmount(864),
+			expected: iwallet.NewAmount(360),
 		},
 		{
 			amount:   iwallet.NewAmount(500000),
@@ -145,7 +141,7 @@ func TestBitcoinWallet_EstimateSpendFee(t *testing.T) {
 		{
 			amount:   iwallet.NewAmount(500000),
 			feeLevel: iwallet.FlPriority,
-			expected: iwallet.NewAmount(3600),
+			expected: iwallet.NewAmount(1440),
 		},
 		{
 			amount:        iwallet.NewAmount(1000000),
@@ -180,7 +176,7 @@ func TestBitcoinWallet_EstimateSpendFee(t *testing.T) {
 			Timestamp: time.Now(),
 			Amount:    "1000000",
 			Height:    600000,
-			Coin:      iwallet.CtBitcoin,
+			Coin:      iwallet.CtLitecoin,
 			Address:   addr.String(),
 			Outpoint:  hex.EncodeToString(serializeOutpoint(op)),
 		})
@@ -201,7 +197,7 @@ func TestBitcoinWallet_EstimateSpendFee(t *testing.T) {
 	}
 }
 
-func TestBitcoinWallet_Spend(t *testing.T) {
+func TestLitecoinWallet_Spend(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 
@@ -215,7 +211,7 @@ func TestBitcoinWallet_Spend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fromAddr, err := btcutil.DecodeAddress(addr.String(), &chaincfg.TestNet3Params)
+	fromAddr, err := ltcutil.DecodeAddress(addr.String(), &chaincfg.TestNet4Params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +233,7 @@ func TestBitcoinWallet_Spend(t *testing.T) {
 			Timestamp: time.Now(),
 			Amount:    "1000000",
 			Height:    600000,
-			Coin:      iwallet.CtBitcoin,
+			Coin:      iwallet.CtLitecoin,
 			Address:   addr.String(),
 			Outpoint:  hex.EncodeToString(serializeOutpoint(op)),
 		})
@@ -251,12 +247,12 @@ func TestBitcoinWallet_Spend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	txid, err := w.Spend(wtx, iwallet.NewAddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", iwallet.CtBitcoin), iwallet.NewAmount(500000), iwallet.FlNormal)
+	txid, err := w.Spend(wtx, iwallet.NewAddress("tltc1q0wzfm6yz9gxght997y38mfvc9lj25hrj2lwdtq", iwallet.CtLitecoin), iwallet.NewAmount(500000), iwallet.FlNormal)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	expected := "ba147e7132d46d17a85bcc51a381f5cb704f7ec7e668a851521ab17cb30e9c3d"
+	expected := "3afacfd4fb92e889199d388071aec83572de9c3f054be46726358ca6d1b3ab36"
 	if txid.String() != expected {
 		t.Errorf("Expected txid %s, got %s", expected, txid)
 	}
@@ -268,7 +264,104 @@ func TestBitcoinWallet_Spend(t *testing.T) {
 	var txBytes []byte
 	err = w.DB.View(func(tx database.Tx) error {
 		var txs []database.UnconfirmedTransaction
-		if err := tx.Read().Where("coin=?", iwallet.CtBitcoin).Find(&txs).Error; err != nil {
+		if err := tx.Read().Where("coin=?", iwallet.CtLitecoin).Find(&txs).Error; err != nil {
+			return err
+		}
+		if len(txs) != 1 {
+			t.Fatalf("Expected 1 tx found %d", len(txs))
+		}
+		if txs[0].Txid != txid.String() {
+			t.Errorf("Expected txid %s, got %s", txid, txs[0].Txid)
+		}
+		txBytes = txs[0].TxBytes
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var tx wire.MsgTx
+	if err := tx.BtcDecode(bytes.NewReader(txBytes), wire.ProtocolVersion, wire.WitnessEncoding); err != nil {
+		t.Fatal(err)
+	}
+
+	vm, err := txscript.NewEngine(fromScript, &tx, 0, txscript.StandardVerifyFlags, nil, nil, 1000000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := vm.Execute(); err != nil {
+		t.Errorf("Script verificationf failed: %s", err)
+	}
+}
+
+func TestLitecoinWallet_SweepWallet(t *testing.T) {
+	httpmock.Activate()
+	defer httpmock.DeactivateAndReset()
+
+	w, err := newTestWallet()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	addr, err := w.Keychain.CurrentAddress(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fromAddr, err := ltcutil.DecodeAddress(addr.String(), &chaincfg.TestNet4Params)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fromScript, err := txscript.PayToAddrScript(fromAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	h, err := chainhash.NewHashFromStr("bdb237bf8c5de6b60ba1e2dcfe364fc24f583e568d1682f851a9d0f11a45c78d")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	op := wire.NewOutPoint(h, 0)
+
+	err = w.DB.Update(func(tx database.Tx) error {
+		return tx.Save(&database.UtxoRecord{
+			Timestamp: time.Now(),
+			Amount:    "1000000",
+			Height:    600000,
+			Coin:      iwallet.CtLitecoin,
+			Address:   addr.String(),
+			Outpoint:  hex.EncodeToString(serializeOutpoint(op)),
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wtx, err := w.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	txid, err := w.SweepWallet(wtx, iwallet.NewAddress("tltc1q0wzfm6yz9gxght997y38mfvc9lj25hrj2lwdtq", iwallet.CtLitecoin), iwallet.FlNormal)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := "ca696700e23be38c57f006423c2f3372b2a8c06dab72f01476b6b6f87cc9626a"
+	if txid.String() != expected {
+		t.Errorf("Expected txid %s, got %s", expected, txid)
+	}
+
+	if err := wtx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	var txBytes []byte
+	err = w.DB.View(func(tx database.Tx) error {
+		var txs []database.UnconfirmedTransaction
+		if err := tx.Read().Where("coin=?", iwallet.CtLitecoin).Find(&txs).Error; err != nil {
 			return err
 		}
 		if len(txs) != 1 {
@@ -298,104 +391,7 @@ func TestBitcoinWallet_Spend(t *testing.T) {
 	}
 }
 
-func TestBitcoinWallet_SweepWallet(t *testing.T) {
-	httpmock.Activate()
-	defer httpmock.DeactivateAndReset()
-
-	w, err := newTestWallet()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	addr, err := w.Keychain.CurrentAddress(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fromAddr, err := btcutil.DecodeAddress(addr.String(), &chaincfg.TestNet3Params)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	fromScript, err := txscript.PayToAddrScript(fromAddr)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	h, err := chainhash.NewHashFromStr("bdb237bf8c5de6b60ba1e2dcfe364fc24f583e568d1682f851a9d0f11a45c78d")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	op := wire.NewOutPoint(h, 0)
-
-	err = w.DB.Update(func(tx database.Tx) error {
-		return tx.Save(&database.UtxoRecord{
-			Timestamp: time.Now(),
-			Amount:    "1000000",
-			Height:    600000,
-			Coin:      iwallet.CtBitcoin,
-			Address:   addr.String(),
-			Outpoint:  hex.EncodeToString(serializeOutpoint(op)),
-		})
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	wtx, err := w.Begin()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	txid, err := w.SweepWallet(wtx, iwallet.NewAddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", iwallet.CtBitcoin), iwallet.FlNormal)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	expected := "30f67e08e85533be14031e86eea07aada5cdabdfda634537e1778340c88420a7"
-	if txid.String() != expected {
-		t.Errorf("Expected txid %s, got %s", expected, txid)
-	}
-
-	if err := wtx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-
-	var txBytes []byte
-	err = w.DB.View(func(tx database.Tx) error {
-		var txs []database.UnconfirmedTransaction
-		if err := tx.Read().Where("coin=?", iwallet.CtBitcoin).Find(&txs).Error; err != nil {
-			return err
-		}
-		if len(txs) != 1 {
-			t.Errorf("Expected 1 tx found %d", len(txs))
-		}
-		if txs[0].Txid != txid.String() {
-			t.Errorf("Expected txid %s, got %s", txid, txs[0].Txid)
-		}
-		txBytes = txs[0].TxBytes
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var tx wire.MsgTx
-	if err := tx.BtcDecode(bytes.NewReader(txBytes), wire.ProtocolVersion, wire.WitnessEncoding); err != nil {
-		t.Fatal(err)
-	}
-
-	vm, err := txscript.NewEngine(fromScript, &tx, 0, txscript.StandardVerifyFlags, nil, nil, 1000000)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := vm.Execute(); err != nil {
-		t.Errorf("Script verificationf failed: %s", err)
-	}
-}
-
-func TestBitcoinWallet_EstimateEscrowFee(t *testing.T) {
+func TestLitecoinWallet_EstimateEscrowFee(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 
@@ -407,7 +403,7 @@ func TestBitcoinWallet_EstimateEscrowFee(t *testing.T) {
 		{
 			threshold: 1,
 			level:     iwallet.FlEconomic,
-			expected:  iwallet.NewAmount(2196),
+			expected:  iwallet.NewAmount(915),
 		},
 		{
 			threshold: 1,
@@ -417,7 +413,7 @@ func TestBitcoinWallet_EstimateEscrowFee(t *testing.T) {
 		{
 			threshold: 1,
 			level:     iwallet.FlPriority,
-			expected:  iwallet.NewAmount(9150),
+			expected:  iwallet.NewAmount(3660),
 		},
 		{
 			threshold: 2,
@@ -427,7 +423,7 @@ func TestBitcoinWallet_EstimateEscrowFee(t *testing.T) {
 		{
 			threshold: 2,
 			level:     iwallet.FlNormal,
-			expected:  iwallet.NewAmount(7925),
+			expected:  iwallet.NewAmount(3170),
 		},
 		{
 			threshold: 2,
@@ -451,7 +447,7 @@ func TestBitcoinWallet_EstimateEscrowFee(t *testing.T) {
 	}
 }
 
-func TestBitcoinWallet_Multisig1of2(t *testing.T) {
+func TestLitecoinWallet_Multisig1of2(t *testing.T) {
 	w, err := newTestWallet()
 	if err != nil {
 		t.Fatal(err)
@@ -474,7 +470,7 @@ func TestBitcoinWallet_Multisig1of2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedAddr := "tb1qv5plgrqexzju9jympkh2qjcalgn0qytp2erqls9xaumc3nkz7v8swcl0jp"
+	expectedAddr := "tltc1qv5plgrqexzju9jympkh2qjcalgn0qytp2erqls9xaumc3nkz7v8s3mrwd7"
 	if address.String() != expectedAddr {
 		t.Errorf("Expected address %s, got %s", expectedAddr, address)
 	}
@@ -500,7 +496,7 @@ func TestBitcoinWallet_Multisig1of2(t *testing.T) {
 		To: []iwallet.SpendInfo{
 			{
 				Amount:  iwallet.NewAmount(900000),
-				Address: iwallet.NewAddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", iwallet.CtBitcoin),
+				Address: iwallet.NewAddress("tltc1q0wzfm6yz9gxght997y38mfvc9lj25hrj2lwdtq", iwallet.CtLitecoin),
 			},
 		},
 	}
@@ -519,7 +515,7 @@ func TestBitcoinWallet_Multisig1of2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedTxid := "b12f50c698dfd650bfdea3568e5cd37634e63a10b8de42187ae2aed120c7fb6b"
+	expectedTxid := "062ceb683cb367e373938090694d3bfabc0a8358b732c586731700ee8d8dd30c"
 	if txid.String() != expectedTxid {
 		t.Errorf("Expected txid %s, got %s", expectedTxid, txid)
 	}
@@ -531,7 +527,7 @@ func TestBitcoinWallet_Multisig1of2(t *testing.T) {
 	var txBytes []byte
 	err = w.DB.View(func(tx database.Tx) error {
 		var txs []database.UnconfirmedTransaction
-		if err := tx.Read().Where("coin=?", iwallet.CtBitcoin).Find(&txs).Error; err != nil {
+		if err := tx.Read().Where("coin=?", iwallet.CtLitecoin).Find(&txs).Error; err != nil {
 			return err
 		}
 		if len(txs) != 1 {
@@ -549,7 +545,7 @@ func TestBitcoinWallet_Multisig1of2(t *testing.T) {
 
 	witnessProgram := sha256.Sum256(redeemScript)
 
-	scriptAddr, err := btcutil.NewAddressWitnessScriptHash(witnessProgram[:], w.params())
+	scriptAddr, err := ltcutil.NewAddressWitnessScriptHash(witnessProgram[:], w.params())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -573,7 +569,7 @@ func TestBitcoinWallet_Multisig1of2(t *testing.T) {
 	}
 }
 
-func TestBitcoinWallet_Multisig2of3(t *testing.T) {
+func TestLitecoinWallet_Multisig2of3(t *testing.T) {
 	w1, err := newTestWallet()
 	if err != nil {
 		t.Fatal(err)
@@ -606,7 +602,7 @@ func TestBitcoinWallet_Multisig2of3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedAddr := "tb1q8tz3nc4wsuh07009rykkgeme9p3qf2nevfa8kjysj34dme6cuq0s98uwsq"
+	expectedAddr := "tltc1q8tz3nc4wsuh07009rykkgeme9p3qf2nevfa8kjysj34dme6cuq0s6yq00l"
 	if address.String() != expectedAddr {
 		t.Errorf("Expected address %s, got %s", expectedAddr, address)
 	}
@@ -632,7 +628,7 @@ func TestBitcoinWallet_Multisig2of3(t *testing.T) {
 		To: []iwallet.SpendInfo{
 			{
 				Amount:  iwallet.NewAmount(900000),
-				Address: iwallet.NewAddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", iwallet.CtBitcoin),
+				Address: iwallet.NewAddress("tltc1q0wzfm6yz9gxght997y38mfvc9lj25hrj2lwdtq", iwallet.CtLitecoin),
 			},
 		},
 	}
@@ -656,7 +652,7 @@ func TestBitcoinWallet_Multisig2of3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedTxid := "b12f50c698dfd650bfdea3568e5cd37634e63a10b8de42187ae2aed120c7fb6b"
+	expectedTxid := "062ceb683cb367e373938090694d3bfabc0a8358b732c586731700ee8d8dd30c"
 	if txid.String() != expectedTxid {
 		t.Errorf("Expected txid %s, got %s", expectedTxid, txid)
 	}
@@ -668,7 +664,7 @@ func TestBitcoinWallet_Multisig2of3(t *testing.T) {
 	var txBytes []byte
 	err = w1.DB.View(func(tx database.Tx) error {
 		var txs []database.UnconfirmedTransaction
-		if err := tx.Read().Where("coin=?", iwallet.CtBitcoin).Find(&txs).Error; err != nil {
+		if err := tx.Read().Where("coin=?", iwallet.CtLitecoin).Find(&txs).Error; err != nil {
 			return err
 		}
 		if len(txs) != 1 {
@@ -686,7 +682,7 @@ func TestBitcoinWallet_Multisig2of3(t *testing.T) {
 
 	witnessProgram := sha256.Sum256(redeemScript)
 
-	scriptAddr, err := btcutil.NewAddressWitnessScriptHash(witnessProgram[:], w1.params())
+	scriptAddr, err := ltcutil.NewAddressWitnessScriptHash(witnessProgram[:], w1.params())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -710,7 +706,7 @@ func TestBitcoinWallet_Multisig2of3(t *testing.T) {
 	}
 }
 
-func TestBitcoinWallet_Multisig2of3Timlocked(t *testing.T) {
+func TestLitecoinWallet_Multisig2of3Timlocked(t *testing.T) {
 	w1, err := newTestWallet()
 	if err != nil {
 		t.Fatal(err)
@@ -743,7 +739,7 @@ func TestBitcoinWallet_Multisig2of3Timlocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedAddr := "tb1qxpskrwmxttvynhrckl4da3jweaz50y20j6n9qrpfdtefvhwgvyxqur3559"
+	expectedAddr := "tltc1qxpskrwmxttvynhrckl4da3jweaz50y20j6n9qrpfdtefvhwgvyxqrqd4t6"
 	if address.String() != expectedAddr {
 		t.Errorf("Expected address %s, got %s", expectedAddr, address)
 	}
@@ -769,7 +765,7 @@ func TestBitcoinWallet_Multisig2of3Timlocked(t *testing.T) {
 		To: []iwallet.SpendInfo{
 			{
 				Amount:  iwallet.NewAmount(900000),
-				Address: iwallet.NewAddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", iwallet.CtBitcoin),
+				Address: iwallet.NewAddress("tltc1q0wzfm6yz9gxght997y38mfvc9lj25hrj2lwdtq", iwallet.CtLitecoin),
 			},
 		},
 	}
@@ -793,7 +789,7 @@ func TestBitcoinWallet_Multisig2of3Timlocked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedTxid := "b12f50c698dfd650bfdea3568e5cd37634e63a10b8de42187ae2aed120c7fb6b"
+	expectedTxid := "062ceb683cb367e373938090694d3bfabc0a8358b732c586731700ee8d8dd30c"
 	if txid.String() != expectedTxid {
 		t.Errorf("Expected txid %s, got %s", expectedTxid, txid)
 	}
@@ -805,7 +801,7 @@ func TestBitcoinWallet_Multisig2of3Timlocked(t *testing.T) {
 	var txBytes []byte
 	err = w1.DB.View(func(tx database.Tx) error {
 		var txs []database.UnconfirmedTransaction
-		if err := tx.Read().Where("coin=?", iwallet.CtBitcoin).Find(&txs).Error; err != nil {
+		if err := tx.Read().Where("coin=?", iwallet.CtLitecoin).Find(&txs).Error; err != nil {
 			return err
 		}
 		if len(txs) != 1 {
@@ -823,7 +819,7 @@ func TestBitcoinWallet_Multisig2of3Timlocked(t *testing.T) {
 
 	witnessProgram := sha256.Sum256(redeemScript)
 
-	scriptAddr, err := btcutil.NewAddressWitnessScriptHash(witnessProgram[:], w1.params())
+	scriptAddr, err := ltcutil.NewAddressWitnessScriptHash(witnessProgram[:], w1.params())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -847,7 +843,7 @@ func TestBitcoinWallet_Multisig2of3Timlocked(t *testing.T) {
 	}
 }
 
-func TestBitcoinWallet_ReleaseFundsAfterTimeout(t *testing.T) {
+func TestLitecoinWallet_ReleaseFundsAfterTimeout(t *testing.T) {
 	w, err := newTestWallet()
 	if err != nil {
 		t.Fatal(err)
@@ -876,7 +872,7 @@ func TestBitcoinWallet_ReleaseFundsAfterTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedAddr := "tb1qxpskrwmxttvynhrckl4da3jweaz50y20j6n9qrpfdtefvhwgvyxqur3559"
+	expectedAddr := "tltc1qxpskrwmxttvynhrckl4da3jweaz50y20j6n9qrpfdtefvhwgvyxqrqd4t6"
 	if address.String() != expectedAddr {
 		t.Errorf("Expected address %s, got %s", expectedAddr, address)
 	}
@@ -902,7 +898,7 @@ func TestBitcoinWallet_ReleaseFundsAfterTimeout(t *testing.T) {
 		To: []iwallet.SpendInfo{
 			{
 				Amount:  iwallet.NewAmount(900000),
-				Address: iwallet.NewAddress("bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4", iwallet.CtBitcoin),
+				Address: iwallet.NewAddress("tltc1q0wzfm6yz9gxght997y38mfvc9lj25hrj2lwdtq", iwallet.CtLitecoin),
 			},
 		},
 	}
@@ -916,7 +912,7 @@ func TestBitcoinWallet_ReleaseFundsAfterTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedTxid := "3bbcb72cb4c5ff7d6f2c11ef26c64f48f944943300f27b74d064bacf5f3a9369"
+	expectedTxid := "50c373196dd5e8117e4e98dbc55bad4f53822ea88673260745c9017bb4847445"
 	if txid.String() != expectedTxid {
 		t.Errorf("Expected txid %s, got %s", expectedTxid, txid)
 	}
@@ -928,7 +924,7 @@ func TestBitcoinWallet_ReleaseFundsAfterTimeout(t *testing.T) {
 	var txBytes []byte
 	err = w.DB.View(func(tx database.Tx) error {
 		var txs []database.UnconfirmedTransaction
-		if err := tx.Read().Where("coin=?", iwallet.CtBitcoin).Find(&txs).Error; err != nil {
+		if err := tx.Read().Where("coin=?", iwallet.CtLitecoin).Find(&txs).Error; err != nil {
 			return err
 		}
 		if len(txs) != 1 {
@@ -946,7 +942,7 @@ func TestBitcoinWallet_ReleaseFundsAfterTimeout(t *testing.T) {
 
 	witnessProgram := sha256.Sum256(redeemScript)
 
-	scriptAddr, err := btcutil.NewAddressWitnessScriptHash(witnessProgram[:], w.params())
+	scriptAddr, err := ltcutil.NewAddressWitnessScriptHash(witnessProgram[:], w.params())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -970,7 +966,7 @@ func TestBitcoinWallet_ReleaseFundsAfterTimeout(t *testing.T) {
 	}
 }
 
-func TestBitcoinWallet_buildTx(t *testing.T) {
+func TestLitecoinWallet_buildTx(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.DeactivateAndReset()
 
@@ -984,7 +980,7 @@ func TestBitcoinWallet_buildTx(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fromAddr, err := btcutil.DecodeAddress(addr.String(), &chaincfg.TestNet3Params)
+	fromAddr, err := ltcutil.DecodeAddress(addr.String(), &chaincfg.TestNet4Params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1009,7 +1005,7 @@ func TestBitcoinWallet_buildTx(t *testing.T) {
 			Timestamp: time.Now(),
 			Amount:    "1000000",
 			Height:    600000,
-			Coin:      iwallet.CtBitcoin,
+			Coin:      iwallet.CtLitecoin,
 			Address:   addr.String(),
 			Outpoint:  hex.EncodeToString(serializeOutpoint(op)),
 		})
@@ -1021,7 +1017,7 @@ func TestBitcoinWallet_buildTx(t *testing.T) {
 	b = make([]byte, 20)
 	rand.Read(b)
 
-	payTo, err := btcutil.NewAddressPubKeyHash(b, &chaincfg.TestNet3Params)
+	payTo, err := ltcutil.NewAddressPubKeyHash(b, &chaincfg.TestNet4Params)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1031,7 +1027,7 @@ func TestBitcoinWallet_buildTx(t *testing.T) {
 		outVal = int64(500000)
 	)
 	err = w.DB.View(func(dbtx database.Tx) error {
-		tx, err = w.buildTx(dbtx, outVal, iwallet.NewAddress(payTo.String(), iwallet.CtBitcoin), iwallet.FlNormal)
+		tx, err = w.buildTx(dbtx, outVal, iwallet.NewAddress(payTo.String(), iwallet.CtLitecoin), iwallet.FlNormal)
 		return err
 	})
 	if err != nil {
@@ -1064,8 +1060,8 @@ func TestBitcoinWallet_buildTx(t *testing.T) {
 	if !paysTo {
 		t.Error("Pay to address not found in transaction")
 	}
-	if totalOut != 998125 {
-		t.Errorf("Expected totalOut of %d, got %d", 998125, totalOut)
+	if totalOut != 999250 {
+		t.Errorf("Expected totalOut of %d, got %d", 999250, totalOut)
 	}
 
 	vm, err := txscript.NewEngine(fromScript, tx, 0, txscript.StandardVerifyFlags, nil, nil, 1000000)

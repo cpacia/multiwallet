@@ -347,7 +347,7 @@ func (c *BchdClient) connect() {
 
 	proxyDialer, err := proxyclient.DialContextFunc()
 	if err == nil {
-		dialContext := func(ctx context.Context, addr string)(net.Conn, error) {
+		dialContext := func(ctx context.Context, addr string) (net.Conn, error) {
 			return proxyDialer(ctx, "tcp", addr)
 		}
 

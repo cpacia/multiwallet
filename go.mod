@@ -1,6 +1,6 @@
 module github.com/cpacia/multiwallet
 
-go 1.12
+go 1.13
 
 require (
 	github.com/OpenBazaar/golang-socketio v0.0.0-20181127201421-909b73d947ae
@@ -19,6 +19,9 @@ require (
 	github.com/gorilla/websocket v1.4.1
 	github.com/jarcoal/httpmock v1.0.4
 	github.com/jinzhu/gorm v1.9.11
+	github.com/ltcsuite/ltcd v0.0.0-20191214120725-004941532b74
+	github.com/ltcsuite/ltcutil v0.0.0-20190507133322-23cdfa9fcc3d
+	github.com/ltcsuite/ltcwallet v0.0.0-20190105125346-3fa612e326e5
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	golang.org/x/crypto v0.0.0-20190923035154-9ee001bba392
@@ -26,3 +29,5 @@ require (
 	google.golang.org/grpc v1.25.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 )
+
+replace github.com/lightninglabs/neutrino => github.com/lightninglabs/neutrino v0.11.0
