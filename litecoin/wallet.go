@@ -1,4 +1,4 @@
-package bitcoin
+package litecoin
 
 import (
 	"bytes"

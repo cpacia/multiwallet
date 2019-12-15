@@ -8,6 +8,7 @@ import (
 	"github.com/cpacia/multiwallet/bitcoincash"
 	"github.com/cpacia/multiwallet/database"
 	"github.com/cpacia/multiwallet/database/sqlitedb"
+	"github.com/cpacia/multiwallet/litecoin"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/natefinch/lumberjack"
 	"github.com/op/go-logging"
@@ -95,6 +96,22 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 				clientUrl = "https://tbtc.blockbook.api.openbazaar.org/api"
 			}
 			w, err := bitcoin.NewBitcoinWallet(&base.WalletConfig{
+				Logger:    logger,
+				DB:        db,
+				ClientUrl: clientUrl,
+				Testnet:   cfg.UseTestnet,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			multiwallet[coinType] = w
+		case iwallet.CtLitecoin:
+			clientUrl := "https://ltc.blockbook.api.openbazaar.org/api"
+			if cfg.UseTestnet {
+				clientUrl = "https://tltc.blockbook.api.openbazaar.org/api"
+			}
+			w, err := litecoin.NewLitecoinWallet(&base.WalletConfig{
 				Logger:    logger,
 				DB:        db,
 				ClientUrl: clientUrl,
