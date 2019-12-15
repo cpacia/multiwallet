@@ -421,7 +421,7 @@ func (w *LitecoinWallet) SignMultisigTransaction(txn iwallet.Transaction, key bt
 	for i := range tx.TxIn {
 		sig, err := txscript.RawTxInWitnessSignature(tx, txscript.NewTxSigHashes(tx), i, txn.From[i].Amount.Int64(), redeemScript, txscript.SigHashAll, privKey)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		bs := iwallet.EscrowSignature{Index: i, Signature: sig[:len(sig)-1]}
 		sigs = append(sigs, bs)

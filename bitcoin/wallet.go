@@ -426,7 +426,7 @@ func (w *BitcoinWallet) SignMultisigTransaction(txn iwallet.Transaction, key btc
 	for i := range tx.TxIn {
 		sig, err := txscript.RawTxInWitnessSignature(tx, txscript.NewTxSigHashes(tx), i, txn.From[i].Amount.Int64(), redeemScript, txscript.SigHashAll, &key)
 		if err != nil {
-			continue
+			return nil, err
 		}
 		bs := iwallet.EscrowSignature{Index: i, Signature: sig[:len(sig)-1]}
 		sigs = append(sigs, bs)

@@ -9,6 +9,7 @@ import (
 	"github.com/cpacia/multiwallet/database"
 	"github.com/cpacia/multiwallet/database/sqlitedb"
 	"github.com/cpacia/multiwallet/litecoin"
+	"github.com/cpacia/multiwallet/zcash"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/natefinch/lumberjack"
 	"github.com/op/go-logging"
@@ -100,6 +101,7 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 				DB:        db,
 				ClientUrl: clientUrl,
 				Testnet:   cfg.UseTestnet,
+				FeeUrl:    "https://btc.fees.openbazaar.org",
 			})
 			if err != nil {
 				return nil, err
@@ -112,6 +114,22 @@ func NewMultiwallet(cfg *Config) (Multiwallet, error) {
 				clientUrl = "https://tltc.blockbook.api.openbazaar.org/api"
 			}
 			w, err := litecoin.NewLitecoinWallet(&base.WalletConfig{
+				Logger:    logger,
+				DB:        db,
+				ClientUrl: clientUrl,
+				Testnet:   cfg.UseTestnet,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			multiwallet[coinType] = w
+		case iwallet.CtZCash:
+			clientUrl := "https://zec.blockbook.api.openbazaar.org/api"
+			if cfg.UseTestnet {
+				clientUrl = "https://tzec.blockbook.api.openbazaar.org/api"
+			}
+			w, err := zcash.NewZCashWallet(&base.WalletConfig{
 				Logger:    logger,
 				DB:        db,
 				ClientUrl: clientUrl,
