@@ -242,7 +242,7 @@ func TestZCashWallet_Spend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected := "c61df527468c4362d70842f0846fc04d66bc5e47d573f8ab3738f4706c025d6f"
+	expected := "282e2e52232a62f7006a1a562ac5e38b9cc5b9ebed49f27a42c6231811a8e721"
 	if txid.String() != expected {
 		t.Errorf("Expected txid %s, got %s", expected, txid)
 	}
@@ -314,7 +314,7 @@ func TestZCashWallet_SweepWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected := "8b6f930a2a21fa9c991989b192bc383a482a5897d899b680f0451db8be503e0a"
+	expected := "e2d007012334b65bc450f01db2fc10e9683b48b9b5b3740e626d3d9f4de4250f"
 	if txid.String() != expected {
 		t.Errorf("Expected txid %s, got %s", expected, txid)
 	}
@@ -465,7 +465,7 @@ func TestZCashWallet_Multisig1of2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedTxid := "c9a46c5cf69295a89fec617493c6b8313b1758de59815297a844c75549aeb0fd"
+	expectedTxid := "4472f1577755fc317703a3d90ec4db43b4062056504ddc55f513aa8991030805"
 	if txid.String() != expectedTxid {
 		t.Errorf("Expected txid %s, got %s", expectedTxid, txid)
 	}
@@ -575,7 +575,7 @@ func TestZCashWallet_Multisig2of3(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	expectedTxid := "4917289d31292eb8ef8d0ebddde57002d7dad71dea25ae5ecb9bd783dc5a3ed6"
+	expectedTxid := "f3cea958e3cc5fe68a9ffa7649dc07bf8dec94108e2b9a7ffd084d4743c1acac"
 	if txid.String() != expectedTxid {
 		t.Errorf("Expected txid %s, got %s", expectedTxid, txid)
 	}
@@ -761,11 +761,12 @@ func TestCalcSignatureHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sigHash, err := calcSignatureHash(prevScript, txscript.SigHashAll, tx, 0, 50000000, 307272)
+	sigHash, err := calcSignatureHash(prevScript, txscript.SigHashAll, tx, 0, 50000000, 307272, 100000000000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected, err := hex.DecodeString("f3148f80dfab5e573d5edfe7a850f5fd39234f80b5429d3a57edcc11e34c585b")
+
+	expected, err := hex.DecodeString("8df91420215909927be677a978c36b528e1e7b4ba343acefdd259fe57f3f1f85")
 	if err != nil {
 		t.Fatal(err)
 	}

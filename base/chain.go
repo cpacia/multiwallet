@@ -225,9 +225,15 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 			case *addWatchOnly:
 				cm.watchOnly = append(cm.watchOnly, msg.addrs...)
 				transactionSub.Subscribe <- msg.addrs
+				if cm.eventBus != nil {
+					cm.eventBus.Emit(&WatchAddressAddedEvent{})
+				}
 
 			case *updateAddrSubscription:
 				transactionSub.Subscribe <- msg.addrs
+				if cm.eventBus != nil {
+					cm.eventBus.Emit(&AddAddressSubscriptionEvent{})
+				}
 			}
 		case tx := <-transactionSub.Out:
 			if tx.Height == 0 {
@@ -670,6 +676,9 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 				// Not relevant transactions must be watch-only since they made
 				// it into this function but do not match any of our addresses.
 				newOrUpdated = append(newOrUpdated, tx)
+			}
+			if tx.Height == 0 {
+				cm.unconfirmedTxs[tx.ID] = tx
 			}
 		}
 

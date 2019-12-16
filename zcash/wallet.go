@@ -45,7 +45,7 @@ var (
 
 const (
 	sigHashMask     = 0x1f
-	saplingBranchID = 1991772603
+	blossomBranchID = 0x2BB40E60
 
 	// MainnetMagic is mainnet network constant
 	MainnetMagic mbwire.BitcoinNet = 0x6427e924
@@ -305,11 +305,16 @@ func (w *ZCashWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level iwal
 		txsort.InPlaceSort(tx)
 
 		// Sign tx
+		blockchainInfo, err := w.BlockchainInfo()
+		if err != nil {
+			return err
+		}
+
 		for i, txIn := range tx.TxIn {
 			prevOutScript := additionalPrevScripts[txIn.PreviousOutPoint]
 			key := keyMap[txIn.PreviousOutPoint]
 
-			sig, err := rawTxInSignature(tx, i, prevOutScript, txscript.SigHashAll, key, inVals[txIn.PreviousOutPoint])
+			sig, err := rawTxInSignature(tx, i, prevOutScript, txscript.SigHashAll, key, inVals[txIn.PreviousOutPoint], blockchainInfo.Height)
 			if err != nil {
 				return errors.New("failed to sign transaction")
 			}
@@ -463,8 +468,12 @@ func (w *ZCashWallet) SignMultisigTransaction(txn iwallet.Transaction, key btcec
 	// BIP 69 sorting
 	txsort.InPlaceSort(tx)
 
+	blockchainInfo, err := w.BlockchainInfo()
+	if err != nil {
+		return nil, err
+	}
 	for i := range tx.TxIn {
-		sig, err := rawTxInSignature(tx, i, redeemScript, txscript.SigHashAll, &key, txn.From[i].Amount.Int64())
+		sig, err := rawTxInSignature(tx, i, redeemScript, txscript.SigHashAll, &key, txn.From[i].Amount.Int64(), blockchainInfo.Height)
 		if err != nil {
 			return nil, err
 		}
@@ -719,11 +728,15 @@ func (w *ZCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Addr
 
 	// Sign tx
 	tx := authoredTx.Tx
+	blockchainInfo, err := w.BlockchainInfo()
+	if err != nil {
+		return nil, err
+	}
 	for i, txIn := range tx.TxIn {
 		prevOutScript := additionalPrevScripts[txIn.PreviousOutPoint]
 		key := additionalKeysByScript[txIn.PreviousOutPoint]
 
-		sig, err := rawTxInSignature(tx, i, prevOutScript, txscript.SigHashAll, key, inVals[txIn.PreviousOutPoint])
+		sig, err := rawTxInSignature(tx, i, prevOutScript, txscript.SigHashAll, key, inVals[txIn.PreviousOutPoint], blockchainInfo.Height)
 		if err != nil {
 			return nil, errors.New("failed to sign transaction")
 		}
@@ -777,9 +790,9 @@ func serializeOutpoint(op *wire.OutPoint) []byte {
 // rawTxInSignature returns the serialized ECDSA signature for the input idx of
 // the given transaction, with hashType appended to it.
 func rawTxInSignature(tx *wire.MsgTx, idx int, prevScriptBytes []byte,
-	hashType txscript.SigHashType, key *btcec.PrivateKey, amt int64) ([]byte, error) {
+	hashType txscript.SigHashType, key *btcec.PrivateKey, amt int64, currentHeight uint64) ([]byte, error) {
 
-	hash, err := calcSignatureHash(prevScriptBytes, hashType, tx, idx, amt, 0)
+	hash, err := calcSignatureHash(prevScriptBytes, hashType, tx, idx, amt, 0, currentHeight)
 	if err != nil {
 		return nil, err
 	}
@@ -791,7 +804,7 @@ func rawTxInSignature(tx *wire.MsgTx, idx int, prevScriptBytes []byte,
 	return append(signature.Serialize(), byte(hashType)), nil
 }
 
-func calcSignatureHash(prevScriptBytes []byte, hashType txscript.SigHashType, tx *wire.MsgTx, idx int, amt int64, expiry uint32) ([]byte, error) {
+func calcSignatureHash(prevScriptBytes []byte, hashType txscript.SigHashType, tx *wire.MsgTx, idx int, amt int64, expiry uint32, currentHeight uint64) ([]byte, error) {
 
 	// As a sanity check, ensure the passed input index for the transaction
 	// is valid.
@@ -900,8 +913,9 @@ func calcSignatureHash(prevScriptBytes []byte, hashType txscript.SigHashType, tx
 	binary.LittleEndian.PutUint32(bSequence[:], tx.TxIn[idx].Sequence)
 	sigHash.Write(bSequence[:])
 
+	branchID := selectBranchID(currentHeight)
 	leBranchID := make([]byte, 4)
-	binary.LittleEndian.PutUint32(leBranchID, saplingBranchID)
+	binary.LittleEndian.PutUint32(leBranchID, branchID)
 	bl, _ := blake2b.New(&blake2b.Config{
 		Size:   32,
 		Person: append(sigHashPersonalization, leBranchID...),
@@ -1076,4 +1090,8 @@ func calcHashOutputs(tx *wire.MsgTx) []byte {
 	bl.Write(b.Bytes())
 	h := bl.Sum(nil)
 	return h[:]
+}
+
+func selectBranchID(currentHeight uint64) uint32 {
+	return blossomBranchID
 }

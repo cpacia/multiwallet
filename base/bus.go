@@ -65,6 +65,8 @@ type (
 	BlockReceivedEvent             struct{}
 	ScanCompleteEvent              struct{}
 	UpdateUnconfirmedCompleteEvent struct{}
+	WatchAddressAddedEvent         struct{}
+	AddAddressSubscriptionEvent    struct{}
 )
 
 type subSettings struct {

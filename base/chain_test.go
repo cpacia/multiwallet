@@ -165,9 +165,20 @@ func TestChainManager_initializeChain(t *testing.T) {
 	client.GenerateBlock()
 	client.GenerateBlock()
 
-	txSub, blockSub, bestHeight, err := chain.initializeChain(iwallet.BlockInfo{}, nil, nil, nil)
+	tr, err := database.NewTransactionRecord(NewMockTransaction(nil, nil), iwallet.CtMock)
 	if err != nil {
 		t.Fatal(err)
+	}
+	unconf := []database.TransactionRecord{
+		*tr,
+	}
+	txSub, blockSub, bestHeight, err := chain.initializeChain(iwallet.BlockInfo{}, unconf, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, ok := chain.unconfirmedTxs[iwallet.TransactionID(tr.Txid)]; !ok {
+		t.Error("Failed to record unconfirmed transaction in map")
 	}
 
 	if txSub == nil {
@@ -309,5 +320,187 @@ func TestChainManager_ScanAndUpdate(t *testing.T) {
 
 	if utxos[0].Amount != txs[2].To[0].Amount.String() {
 		t.Errorf("Incorrect amount. Expected %s, got %s", txs[2].To[0].Amount.String(), utxos[0].Amount)
+	}
+}
+
+func TestChainManager_Add(t *testing.T) {
+	chain, _, err := newTestChain()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer chain.db.Close()
+
+	scanComplete, err := chain.eventBus.Subscribe(&ScanCompleteEvent{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	chain.Start()
+	defer chain.Stop()
+
+	select {
+	case <-scanComplete.Out():
+	case <-time.After(time.Second * 10):
+		t.Fatal("Timed out waiting for scan")
+	}
+
+	watchAdded, err := chain.eventBus.Subscribe(&WatchAddressAddedEvent{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	chain.AddWatchOnly(iwallet.NewAddress("abc", iwallet.CtMock))
+
+	select {
+	case <-watchAdded.Out():
+	case <-time.After(time.Second * 10):
+		t.Fatal("Timed out waiting for addr")
+	}
+
+	addAddress, err := chain.eventBus.Subscribe(&AddAddressSubscriptionEvent{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	chain.AddAddressSubscription(iwallet.NewAddress("abc", iwallet.CtMock))
+
+	select {
+	case <-addAddress.Out():
+	case <-time.After(time.Second * 10):
+		t.Fatal("Timed out waiting for addr")
+	}
+}
+
+func TestChainManager_BestBlock(t *testing.T) {
+	chain, client, err := newTestChain()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer chain.db.Close()
+
+	scanComplete, err := chain.eventBus.Subscribe(&ScanCompleteEvent{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	chain.Start()
+	defer chain.Stop()
+
+	select {
+	case <-scanComplete.Out():
+	case <-time.After(time.Second * 10):
+		t.Fatal("Timed out waiting for scan")
+	}
+
+	blockReceived, err := chain.eventBus.Subscribe(&BlockReceivedEvent{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client.GenerateBlock()
+	client.GenerateBlock()
+
+	select {
+	case <-blockReceived.Out():
+	case <-time.After(time.Second * 10):
+		t.Fatal("Timed out waiting for block")
+	}
+
+	select {
+	case <-blockReceived.Out():
+	case <-time.After(time.Second * 10):
+		t.Fatal("Timed out waiting for block")
+	}
+
+	best := chain.BestBlock()
+	if best.Height != 2 {
+		t.Errorf("Expected height 2 got %d", best.Height)
+	}
+}
+
+func TestChainManager_WatchOnly(t *testing.T) {
+	chain, client, err := newTestChain()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer chain.db.Close()
+
+	txChan := make(chan iwallet.Transaction)
+	chain.subscriptionChan = txChan
+
+	addr := iwallet.NewAddress("abc", iwallet.CtMock)
+	chain.AddWatchOnly(addr)
+
+	var (
+		tx  = NewMockTransaction(nil, &addr)
+		txs = []iwallet.Transaction{tx}
+	)
+
+	for _, tx := range txs {
+		client.txIndex[tx.ID] = tx
+
+		for _, from := range tx.From {
+			client.addrIndex[from.Address] = append(client.addrIndex[from.Address], tx)
+		}
+		for _, to := range tx.To {
+			client.addrIndex[to.Address] = append(client.addrIndex[to.Address], tx)
+		}
+	}
+
+	sub, err := chain.eventBus.Subscribe(&ScanCompleteEvent{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	chain.Start()
+	defer chain.Stop()
+
+	select {
+	case tx2 := <-txChan:
+		if tx.ID != tx2.ID {
+			t.Errorf("Expected txid %s, got %s", tx.ID, tx2.ID)
+		}
+	case <-time.After(time.Second * 10):
+		t.Fatal("Timed out waiting for tx")
+	}
+
+	select {
+	case <-sub.Out():
+	case <-time.After(time.Second * 10):
+		t.Fatal("Timed out waiting for scan")
+	}
+
+	var savedTxs []database.TransactionRecord
+	err = chain.db.View(func(tx database.Tx) error {
+		return tx.Read().Where("coin=?", iwallet.CtMock).Find(&savedTxs).Error
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(savedTxs) != 0 {
+		t.Errorf("Expected 0 transactions, got %d", len(savedTxs))
+	}
+
+	ucSub, err := chain.eventBus.Subscribe(&UpdateUnconfirmedCompleteEvent{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client.GenerateBlock()
+
+	select {
+	case tx2 := <-txChan:
+		if tx.ID != tx2.ID {
+			t.Errorf("Expected txid %s, got %s", tx.ID, tx2.ID)
+		}
+	case <-time.After(time.Second * 10):
+		t.Fatal("Timed out waiting for tx")
+	}
+
+	select {
+	case <-ucSub.Out():
+	case <-time.After(time.Second * 10):
+		t.Fatal("Timed out waiting for unconfirms to update")
 	}
 }

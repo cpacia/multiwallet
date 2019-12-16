@@ -71,11 +71,9 @@ func (m *MockChainClient) GenerateBlock() {
 		m.txIndex[txid] = tx
 	}
 
-	go func() {
-		for _, sub := range m.blockSubs {
-			sub.Out <- newBlock
-		}
-	}()
+	for _, sub := range m.blockSubs {
+		sub.Out <- newBlock
+	}
 }
 
 func (m *MockChainClient) SetErrorResponse(err error) {
