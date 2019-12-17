@@ -55,6 +55,10 @@ var Defaults = func(cfg *Config) error {
 			Mainnet: "https://zec.blockbook.api.openbazaar.org/api",
 			Testnet: "https://tzec.blockbook.api.openbazaar.org/api",
 		},
+		iwallet.CtEthereum: {
+			Mainnet: "https://mainnet.infura.io",
+			Testnet: "https://rinkeby.infura.io",
+		},
 	}
 	cfg.LogLevel = logging.INFO
 	cfg.DataDir = DefaultHomeDir

@@ -52,8 +52,9 @@ func (ar *AddressRecord) Address() iwallet.Address {
 }
 
 type WatchedAddressRecord struct {
-	Addr string `gorm:"primary_key"`
-	Coin string
+	Addr   string `gorm:"primary_key"`
+	Coin   string
+	Script []byte
 }
 
 type TransactionRecord struct {

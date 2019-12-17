@@ -298,7 +298,25 @@ func (w *WalletBase) GetTransaction(id iwallet.TransactionID) (iwallet.Transacti
 		}
 	}
 
-	return w.ChainClient.GetTransaction(id)
+	backoff := expbackoff.NewExponentialBackOff()
+	backoff.MaxElapsedTime = time.Second * 30
+
+	for {
+		tx, err := w.ChainClient.GetTransaction(id)
+		if err == nil {
+			return tx, nil
+		}
+		next := backoff.NextBackOff()
+		if next == expbackoff.Stop {
+			return tx, errors.New("timed out querying for address transactions")
+		}
+		select {
+		case <-time.After(next):
+			continue
+		case <-w.Done:
+			return tx, errors.New("wallet is closed")
+		}
+	}
 }
 
 // GetAddressTransactions returns the transactions sending to or spending from this address.
@@ -318,7 +336,12 @@ func (w *WalletBase) GetAddressTransactions(addr iwallet.Address) ([]iwallet.Tra
 		if next == expbackoff.Stop {
 			return nil, errors.New("timed out querying for address transactions")
 		}
-		time.Sleep(next)
+		select {
+		case <-time.After(next):
+			continue
+		case <-w.Done:
+			return nil, errors.New("wallet is closed")
+		}
 	}
 }
 

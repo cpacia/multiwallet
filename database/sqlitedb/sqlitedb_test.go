@@ -117,7 +117,7 @@ func TestSqliteDB_CRUD(t *testing.T) {
 		}
 		return tx.Save(&database.UtxoRecord{
 			Outpoint: "0000",
-			Height: 1234,
+			Height:   1234,
 		})
 	})
 	if err != nil {
@@ -135,7 +135,6 @@ func TestSqliteDB_CRUD(t *testing.T) {
 	if len(utxos) != 1 {
 		t.Error("Failed to save utxo to the database")
 	}
-
 
 	err = db.Update(func(tx database.Tx) error {
 		return tx.Update("address", "abc", map[string]interface{}{"outpoint = ?": "0000"}, &database.UtxoRecord{})
