@@ -99,8 +99,8 @@ func (client *EthClient) GetBlockchainInfo() (iwallet.BlockInfo, error) {
 	}
 
 	return iwallet.BlockInfo{
-		BlockID: iwallet.BlockID(header.Hash().String()),
-		Height: uint64(header.Number.Int64()),
+		BlockID:   iwallet.BlockID(header.Hash().String()),
+		Height:    uint64(header.Number.Int64()),
 		BlockTime: time.Unix(int64(header.Time), 0),
 		PrevBlock: iwallet.BlockID(header.ParentHash.String()),
 	}, nil

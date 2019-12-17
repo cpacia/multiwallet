@@ -10,7 +10,7 @@ import (
 // Account represents ethereum keystore
 type Account struct {
 	PrivateKey *ecdsa.PrivateKey
-	Addr    common.Address
+	Addr       common.Address
 }
 
 // Address returns the eth address

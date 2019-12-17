@@ -1,7 +1,9 @@
 package ethereum
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"github.com/cpacia/multiwallet/database"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -26,7 +29,6 @@ var _ = iwallet.Wallet(&EthereumWallet{})
 var _ = iwallet.WalletCrypter(&EthereumWallet{})
 var _ = iwallet.Escrow(&EthereumWallet{})
 var _ = iwallet.EscrowWithTimeout(&EthereumWallet{})
-
 
 const (
 	// RegistryAddressMainnet represents the address of the OpenBazaar escrow contract on mainnet.
@@ -132,7 +134,11 @@ func (w *EthereumWallet) CurrentAddress() (iwallet.Address, error) {
 // Wallets that only use a single address, like Ethereum, should save the
 // passed in order ID locally such as to associate payments with orders.
 func (w *EthereumWallet) NewAddress() (iwallet.Address, error) {
-	return iwallet.NewAddress(w.walletAddress.String(), iwallet.CtEthereum), nil
+	// Since this is only used for direct orders, we're going to pad the address
+	// with a random nonce so that we can associate it with the order.
+	r := make([]byte, 20)
+	rand.Read(r)
+	return iwallet.NewAddress(w.walletAddress.String()+hex.EncodeToString(r), iwallet.CtEthereum), nil
 }
 
 // ValidateAddress validates that the serialization of the address is correct
@@ -165,27 +171,92 @@ func (w *EthereumWallet) GetTransaction(id iwallet.TransactionID) (iwallet.Trans
 		return iwallet.Transaction{}, err
 	}
 
-	fromAddr := msg.From()
-	toAddr := msg.To()
+	fromAddr := iwallet.NewAddress(msg.From().String(), iwallet.CtEthereum)
+	toAddr := iwallet.NewAddress(msg.To().String(), iwallet.CtEthereum)
 
-	// TODO: check db for this txid. If it exists this means it was a payment into the escrow.
-	// In this case get the toAddress for the escrow from the db and set it here.
-	return iwallet.Transaction{
-		ID: id,
+	ver, err := w.registry.GetRecommendedVersion(nil, "escrow")
+	if err != nil {
+		return iwallet.Transaction{}, err
+	}
+
+	txn := iwallet.Transaction{
+		ID:    id,
 		Value: iwallet.NewAmount(tx.Value()),
-		From: []iwallet.SpendInfo {
+	}
+
+	if ver.Implementation.String() == toAddr.String() {
+		parsed, err := abi.JSON(strings.NewReader(EscrowABI))
+		if err != nil {
+			return iwallet.Transaction{}, err
+		}
+		fromVal := iwallet.NewAmount(msg.Value())
+		if bytes.HasPrefix(tx.Data(), []byte{0xe4, 0xec, 0x8b, 0x00}) { // execute
+			method, err := parsed.MethodById([]byte{0xe4, 0xec, 0x8b, 0x00})
+			if err != nil {
+				return iwallet.Transaction{}, err
+			}
+			m := make(map[string]interface{})
+			err = method.Inputs.UnpackIntoMap(m, tx.Data()[4:])
+			if err != nil {
+				return iwallet.Transaction{}, err
+			}
+			scriptHash := m["scriptHash"].([32]byte)
+			fromAddr = iwallet.NewAddress("0x"+hex.EncodeToString(scriptHash[:]), iwallet.CtEthereum)
+			amts := m["amounts"].([]*big.Int)
+			total := iwallet.NewAmount(0)
+			for i, destination := range m["destinations"].([]common.Address) {
+				txn.To = append(txn.To, iwallet.SpendInfo{
+					Address: iwallet.NewAddress(destination.String(), iwallet.CtEthereum),
+					Amount: iwallet.NewAmount(amts[i]),
+				})
+				total = total.Add(iwallet.NewAmount(amts[i]))
+			}
+			fromVal = total
+
+		} else if bytes.HasPrefix(tx.Data(), []byte{0x23, 0xb6, 0xfd, 0x3f}) { // addTransaction
+			method, err := parsed.MethodById([]byte{0x23, 0xb6, 0xfd, 0x3f})
+			if err != nil {
+				return iwallet.Transaction{}, err
+			}
+			m := make(map[string]interface{})
+			err = method.Inputs.UnpackIntoMap(m, tx.Data()[4:])
+			if err != nil {
+				return iwallet.Transaction{}, err
+			}
+
+			scriptHash := m["scriptHash"].([32]byte)
+			txn.To = []iwallet.SpendInfo{
+				{
+					Address: iwallet.NewAddress("0x"+hex.EncodeToString(scriptHash[:]), iwallet.CtEthereum),
+					Amount:  iwallet.NewAmount(msg.Value()),
+				},
+			}
+		}
+
+		txn.From = []iwallet.SpendInfo{
 			{
 				Address: iwallet.NewAddress(fromAddr.String(), iwallet.CtEthereum),
-				Amount: iwallet.NewAmount(msg.Value()),
+				Amount:  fromVal,
 			},
-		},
-		To: []iwallet.SpendInfo {
+		}
+	} else {
+		if len(tx.Data()) > 0 {
+			toAddr = iwallet.NewAddress("0x"+hex.EncodeToString(tx.Data()), iwallet.CtEthereum)
+		}
+		txn.From = []iwallet.SpendInfo{
+			{
+				Address: iwallet.NewAddress(fromAddr.String(), iwallet.CtEthereum),
+				Amount:  iwallet.NewAmount(msg.Value()),
+			},
+		}
+		txn.To = []iwallet.SpendInfo{
 			{
 				Address: iwallet.NewAddress(toAddr.String(), iwallet.CtEthereum),
-				Amount: iwallet.NewAmount(msg.Value()),
+				Amount:  iwallet.NewAmount(msg.Value()),
 			},
-		},
-	}, nil
+		}
+	}
+	return txn, nil
 }
 
 // GetAddressTransactions returns the transactions sending to or spending from this address.
@@ -262,80 +333,92 @@ func (w *EthereumWallet) EstimateSpendFee(amount iwallet.Amount, feeLevel iwalle
 // the state changes should be discarded. Only when Commit() is called should
 // the state changes be applied and the transaction broadcasted to the network.
 func (w *EthereumWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.Amount, feeLevel iwallet.FeeLevel) (iwallet.TransactionID, error) {
-	from := iwallet.NewAddress(w.walletAddress.String(), iwallet.CtEthereum)
+	wbtx, ok := wtx.(*base.DBTx)
+	if !ok {
+		return iwallet.TransactionID(""), errors.New("tx is not expected type")
+	}
 
-	var txhash iwallet.TransactionID
+	var (
+		txhash    iwallet.TransactionID
+		walletKey *hdkeychain.ExtendedKey
+		signedTx *types.Transaction
+		err       error
+		from      = iwallet.NewAddress(w.walletAddress.String(), iwallet.CtEthereum)
+	)
+	err = w.DB.View(func(dbtx database.Tx) error {
+		walletKey, err = w.Keychain.KeyForAddress(dbtx, from, nil)
+		return err
+	})
+	if err != nil {
+		return txhash, err
+	}
+
+	priv, err := walletKey.ECPrivKey()
+	if err != nil {
+		return txhash, err
+	}
+
+	account := Account{
+		PrivateKey: priv.ToECDSA(),
+		Addr:       *w.walletAddress,
+	}
+
+	gas, err := w.gas(feeLevel)
+	if err != nil {
+		return txhash, err
+	}
+
 	if common.IsHexAddress(to.String()) { // Sending to a normal eth address
-		wbtx, ok := wtx.(*base.DBTx)
-		if !ok {
-			return iwallet.TransactionID(""), errors.New("tx is not expected type")
-		}
-
-		var (
-			walletKey *hdkeychain.ExtendedKey
-			err error
-		)
-		err = w.DB.View(func(dbtx database.Tx) error {
-			walletKey, err = w.Keychain.KeyForAddress(dbtx, from, nil)
-			return err
-		})
-		if err != nil {
-			return txhash, err
-		}
-
-		priv, err := walletKey.ECPrivKey()
-		if err != nil {
-			return txhash, err
-		}
-
-		account := Account{
-			PrivateKey:  priv.ToECDSA(),
-			Addr: *w.walletAddress,
-		}
-
-		gas, err := w.gas(feeLevel)
-		if err != nil {
-			return txhash, err
-		}
 		bigAmt := big.Int(amt)
-		signedTx, err := w.buildTx(&account, common.HexToAddress(to.String()), &bigAmt, false, gas)
+		signedTx, err = w.buildTx(&account, common.HexToAddress(to.String()), &bigAmt, false, gas, nil)
+		if err != nil {
+			return txhash, err
+		}
+		txhash = iwallet.TransactionID(signedTx.Hash().String())
+	} else if strings.HasPrefix(to.String(), "0x") && len(to.String()) == 82 { // Sending to a direct address
+		data, err := hex.DecodeString(strings.TrimPrefix(to.String(), "0x"))
 		if err != nil {
 			return txhash, err
 		}
 
-		txhash = iwallet.TransactionID(signedTx.Hash().String())
-
-		wbtx.OnCommit = func() error {
-			return w.DB.Update(func(dbtx database.Tx) error {
-				txn := iwallet.Transaction{
-					ID: txhash,
-					Value: amt.Mul(iwallet.NewAmount(-1)),
-					Timestamp: time.Now(),
-					From: []iwallet.SpendInfo{
-						{
-							Amount: amt,
-							Address: iwallet.NewAddress(w.walletAddress.String(), iwallet.CtEthereum),
-						},
-					},
-					To: []iwallet.SpendInfo{
-						{
-							Amount: amt,
-							Address: to,
-						},
-					},
-				}
-				if err := dbtx.Save(&txn); err != nil {
-					return err
-				}
-				return w.client.Broadcast(signedTx)
-
-				// TODO: send tx to subscribers
-			})
+		bigAmt := big.Int(amt)
+		signedTx, err = w.buildTx(&account, common.HexToAddress(to.String()[:42]), &bigAmt, false, gas, data)
+		if err != nil {
+			return txhash, err
 		}
+		txhash = iwallet.TransactionID(signedTx.Hash().String())
 	} else if strings.HasPrefix(to.String(), "0x") && len(to.String()) == 66 { // Sending to an escrow address
-
+		// TODO:
 	} else {
 		return iwallet.TransactionID(""), errors.New("unknown address type")
+	}
+
+	wbtx.OnCommit = func() error {
+		return w.DB.Update(func(dbtx database.Tx) error {
+			txn := iwallet.Transaction{
+				ID:        txhash,
+				Value:     amt.Mul(iwallet.NewAmount(-1)),
+				Timestamp: time.Now(),
+				From: []iwallet.SpendInfo{
+					{
+						Amount:  amt,
+						Address: iwallet.NewAddress(w.walletAddress.String(), iwallet.CtEthereum),
+					},
+				},
+				To: []iwallet.SpendInfo{
+					{
+						Amount:  amt,
+						Address: to,
+					},
+				},
+			}
+			if err := dbtx.Save(&txn); err != nil {
+				return err
+			}
+			return w.client.Broadcast(signedTx)
+
+			// TODO: send tx to subscribers
+		})
 	}
 
 	return txhash, nil
@@ -354,7 +437,7 @@ func (w *EthereumWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level i
 
 	var (
 		walletKey *hdkeychain.ExtendedKey
-		err error
+		err       error
 	)
 	err = w.DB.View(func(dbtx database.Tx) error {
 		walletKey, err = w.Keychain.KeyForAddress(dbtx, from, nil)
@@ -370,15 +453,15 @@ func (w *EthereumWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level i
 	}
 
 	account := Account{
-		PrivateKey:  priv.ToECDSA(),
-		Addr: *w.walletAddress,
+		PrivateKey: priv.ToECDSA(),
+		Addr:       *w.walletAddress,
 	}
 
 	gas, err := w.gas(level)
 	if err != nil {
 		return iwallet.TransactionID(""), err
 	}
-	signedTx, err := w.buildTx(&account, common.HexToAddress(to.String()), big.NewInt(0), true, gas)
+	signedTx, err := w.buildTx(&account, common.HexToAddress(to.String()), big.NewInt(0), true, gas, nil)
 	if err != nil {
 		return iwallet.TransactionID(""), err
 	}
@@ -466,7 +549,11 @@ func (w *EthereumWallet) CreateMultisigAddress(keys []btcec.PublicKey, threshold
 		return iwallet.Address{}, nil, fmt.Errorf("unable to generate multisig script with %d keys", len(keys))
 	}
 
-	id := bchutil.Hash160(append(keys[0].SerializeCompressed(), keys[1].SerializeCompressed()...))
+	var serializedKeys []byte
+	for _, key := range keys {
+		serializedKeys = append(serializedKeys, key.SerializeCompressed()...)
+	}
+	id := bchutil.Hash160(serializedKeys)
 
 	addrs := make([]common.Address, 3)
 	for i, key := range keys {
@@ -480,10 +567,10 @@ func (w *EthereumWallet) CreateMultisigAddress(keys []btcec.PublicKey, threshold
 	}
 
 	script := EthRedeemScript{
-		TxnID:     id,
-		Buyer:     addrs[0],
-		Vendor:    addrs[1],
-		Threshold: uint8(threshold),
+		TxnID:           id,
+		Buyer:           addrs[0],
+		Vendor:          addrs[1],
+		Threshold:       uint8(threshold),
 		MultisigAddress: ver.Implementation,
 	}
 
@@ -567,7 +654,11 @@ func (w *EthereumWallet) CreateMultisigWithTimeout(keys []btcec.PublicKey, thres
 		return iwallet.Address{}, nil, fmt.Errorf("timeout key does not match key at index 2")
 	}
 
-	id := bchutil.Hash160(append(keys[0].SerializeCompressed(), keys[1].SerializeCompressed()...))
+	var serializedKeys []byte
+	for _, key := range keys {
+		serializedKeys = append(serializedKeys, key.SerializeCompressed()...)
+	}
+	id := bchutil.Hash160(serializedKeys)
 
 	addrs := make([]common.Address, 3)
 	for i, key := range keys {
@@ -581,11 +672,11 @@ func (w *EthereumWallet) CreateMultisigWithTimeout(keys []btcec.PublicKey, thres
 	}
 
 	script := EthRedeemScript{
-		TxnID:     id,
-		Buyer:     addrs[0],
-		Vendor:    addrs[1],
-		Threshold: uint8(threshold),
-		Timeout:   uint32(timeout.Seconds()),
+		TxnID:           id,
+		Buyer:           addrs[0],
+		Vendor:          addrs[1],
+		Threshold:       uint8(threshold),
+		Timeout:         uint32(timeout.Seconds()),
 		MultisigAddress: ver.Implementation,
 	}
 
@@ -630,7 +721,7 @@ func (w *EthereumWallet) ReleaseFundsAfterTimeout(dbtx iwallet.Tx, txn iwallet.T
 	return iwallet.TransactionID(""), nil
 }
 
-func (w *EthereumWallet) buildTx(from *Account, destAccount common.Address, value *big.Int, spendAll bool, fee big.Int) (*types.Transaction, error) {
+func (w *EthereumWallet) buildTx(from *Account, destAccount common.Address, value *big.Int, spendAll bool, fee big.Int, data []byte) (*types.Transaction, error) {
 	var err error
 	fromAddress := from.Address()
 	nonce, err := w.client.PendingNonceAt(context.Background(), fromAddress)
@@ -669,7 +760,7 @@ func (w *EthereumWallet) buildTx(from *Account, destAccount common.Address, valu
 		}
 	}
 
-	rawTx := types.NewTransaction(nonce, destAccount, tvalue, gasLimit, gasPrice, nil)
+	rawTx := types.NewTransaction(nonce, destAccount, tvalue, gasLimit, gasPrice, data)
 	signedTx, err := from.SignTransaction(types.HomesteadSigner{}, rawTx)
 	if err != nil {
 		return nil, err
@@ -703,4 +794,11 @@ func (w *EthereumWallet) keyToAddress(key *hdkeychain.ExtendedKey) (iwallet.Addr
 	addr := crypto.PubkeyToAddress(*ecdsaPubkey)
 
 	return iwallet.NewAddress(addr.String(), iwallet.CtEthereum), nil
+}
+
+func extractRedeemScript(tx *types.Transaction) (_ []byte, incoming bool) {
+	if bytes.HasPrefix(tx.Data(), []byte{0xe4, 0xec, 0x8b, 0x00}) {
+		return tx.Data()[100: 132], false
+	}
+	return tx.Data()[164: 196], true
 }

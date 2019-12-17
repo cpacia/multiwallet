@@ -20,8 +20,9 @@ func TestEthereumWallet_CloseWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 	w, err := NewEthereumWallet(&base.WalletConfig{
-		ClientUrl: "https://mainnet.infura.io",
-		DB: db,
+		ClientUrl: "https://rinkeby.infura.io",
+		DB:        db,
+		Testnet:   true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -44,6 +45,5 @@ func TestEthereumWallet_CloseWallet(t *testing.T) {
 
 	defer w.CloseWallet()
 
-	fmt.Println(w.GetTransaction(iwallet.TransactionID("0xf203281fe3ee87635044e19da60ab3bce8a7dae30af85e9922be5e26553f696b")))
-
+	fmt.Println(w.GetTransaction(iwallet.TransactionID("0x5a6f5c52df5790bd114704e58afb7ba071e90d9e4cd0b6accd5304a64137cfb5")))
 }
