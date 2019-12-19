@@ -366,7 +366,7 @@ func (c *EthClient) connect() {
 	}
 
 	ws, err := rpc.DialWebsocket(context.Background(), strings.Replace(c.url, "https", "wss", 1)+"/ws", "")
-	if err != nil {
+	if err == nil {
 		wsConnected = true
 	}
 	if rpcConnected && wsConnected {

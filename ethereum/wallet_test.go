@@ -8,6 +8,7 @@ import (
 	"github.com/cpacia/multiwallet/database"
 	"github.com/cpacia/multiwallet/database/sqlitedb"
 	iwallet "github.com/cpacia/wallet-interface"
+	"github.com/op/go-logging"
 	"testing"
 	"time"
 )
@@ -24,6 +25,7 @@ func TestEthereumWallet_CloseWallet(t *testing.T) {
 		ClientUrl: "https://rinkeby.infura.io",
 		DB:        db,
 		Testnet:   true,
+		Logger:    logging.MustGetLogger("eth"),
 	})
 	if err != nil {
 		t.Fatal(err)
