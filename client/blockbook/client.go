@@ -10,7 +10,6 @@ import (
 	gosocketio "github.com/OpenBazaar/golang-socketio"
 	"github.com/OpenBazaar/golang-socketio/protocol"
 	"github.com/btcsuite/btcutil"
-	"github.com/cenkalti/backoff"
 	"github.com/cpacia/multiwallet/base"
 	"github.com/cpacia/proxyclient"
 	iwallet "github.com/cpacia/wallet-interface"
@@ -20,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -33,6 +33,7 @@ type BlockbookClient struct {
 	clientUrl string
 	coinType  iwallet.CoinType
 	subMtx    sync.Mutex
+	started   uint32
 	shutdown  chan struct{}
 	txSubs    map[int32]*base.TransactionSubscription
 	blockSubs map[int32]*base.BlockSubscription
@@ -54,7 +55,6 @@ func NewBlockbookClient(url string, coinType iwallet.CoinType) (*BlockbookClient
 		txSubs:    make(map[int32]*base.TransactionSubscription),
 		blockSubs: make(map[int32]*base.BlockSubscription),
 	}
-	client.connectSocket()
 	return client, nil
 }
 
@@ -119,7 +119,7 @@ func (c *BlockbookClient) GetBlockchainInfo() (iwallet.BlockInfo, error) {
 }
 
 func (c *BlockbookClient) GetAddressTransactions(addr iwallet.Address, fromHeight uint64) ([]iwallet.Transaction, error) {
-	if c.socket == nil {
+	if atomic.LoadUint32(&c.started) == 0 {
 		return nil, errors.New("blockbook client not connected")
 	}
 	resp, err := c.socket.Ack("message", socketioReq{"getAddressTxids", []interface{}{
@@ -224,7 +224,7 @@ func (c *BlockbookClient) IsBlockInMainChain(block iwallet.BlockInfo) (bool, err
 }
 
 func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.TransactionSubscription, error) {
-	if c.socket == nil {
+	if atomic.LoadUint32(&c.started) == 0 {
 		return nil, errors.New("blockbook client not connected")
 	}
 
@@ -288,7 +288,7 @@ func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.
 }
 
 func (c *BlockbookClient) SubscribeBlocks() (*base.BlockSubscription, error) {
-	if c.socket == nil {
+	if atomic.LoadUint32(&c.started) == 0 {
 		return nil, errors.New("blockbook client not connected")
 	}
 
@@ -332,6 +332,57 @@ func (c *BlockbookClient) Broadcast(serializedTx []byte) error {
 	return nil
 }
 
+func (c *BlockbookClient) Open() error {
+	socketUrl := strings.Replace(strings.TrimSuffix(c.clientUrl, "/api"), "https://", "wss://", 1)
+
+	socket, err := gosocketio.Dial(socketUrl+"/socket.io/", GetDefaultWebsocketTransport())
+	if err != nil {
+		return err
+	}
+	err = socket.On("bitcoind/addresstxid", func(h *gosocketio.Channel, arg interface{}) {
+		m, ok := arg.(map[string]interface{})
+		if !ok {
+			return
+		}
+		for _, v := range m {
+			txid, ok := v.(string)
+			if !ok {
+				return
+			}
+			tx, err := c.GetTransaction(iwallet.TransactionID(txid))
+			if err == nil {
+				c.subMtx.Lock()
+				for _, sub := range c.txSubs {
+					sub.Out <- tx
+				}
+				c.subMtx.Unlock()
+			}
+		}
+	})
+	if err != nil {
+		socket.Close()
+		return err
+	}
+	err = socket.On("bitcoind/hashblock", func(h *gosocketio.Channel, arg interface{}) {
+		info, err := c.GetBlockchainInfo()
+		if err != nil {
+			return
+		}
+		c.subMtx.Lock()
+		for _, sub := range c.blockSubs {
+			sub.Out <- info
+		}
+		c.subMtx.Unlock()
+	})
+	if err != nil {
+		socket.Close()
+		return err
+	}
+	c.socket = socket
+	atomic.AddUint32(&c.started, 1)
+	return nil
+}
+
 func (c *BlockbookClient) Close() error {
 	c.subMtx.Lock()
 	defer c.subMtx.Unlock()
@@ -341,47 +392,6 @@ func (c *BlockbookClient) Close() error {
 		c.socket.Close()
 	}
 	return nil
-}
-
-func (c *BlockbookClient) connectSocket() {
-	bo := backoff.NewExponentialBackOff()
-	socketUrl := strings.Replace(strings.TrimSuffix(c.clientUrl, "/api"), "https://", "wss://", 1)
-
-	s, err := gosocketio.Dial(socketUrl+"/socket.io/", GetDefaultWebsocketTransport())
-	if err == nil {
-		err = c.listenEvents(s)
-		if err == nil {
-			c.socket = s
-			return
-		}
-		s.Close()
-	}
-
-	go func() {
-		for {
-			s, err := gosocketio.Dial(socketUrl+"/socket.io/", GetDefaultWebsocketTransport())
-			if err != nil {
-				select {
-				case <-time.After(bo.NextBackOff()):
-					continue
-				case <-c.shutdown:
-					return
-				}
-			}
-			err = c.listenEvents(s)
-			if err != nil {
-				s.Close()
-				select {
-				case <-time.After(bo.NextBackOff()):
-					continue
-				case <-c.shutdown:
-					return
-				}
-			}
-			c.socket = s
-			break
-		}
-	}()
 }
 
 func (c *BlockbookClient) listenEvents(socket *gosocketio.Client) error {

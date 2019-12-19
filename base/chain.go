@@ -302,6 +302,10 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 }
 
 func (cm *ChainManager) initializeChain(currentBestBlock iwallet.BlockInfo, unconfirmed []database.TransactionRecord, addrs []iwallet.Address, watchAddresses []database.WatchedAddressRecord) (*TransactionSubscription, *BlockSubscription, uint64, error) {
+	if err := cm.client.Open(); err != nil {
+		return nil, nil, 0, err
+	}
+
 	for _, uc := range unconfirmed {
 		tx, err := uc.Transaction()
 		if err != nil {

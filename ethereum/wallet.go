@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
+	ethc "github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gcash/bchutil"
 	"math/big"
 	"strings"
@@ -43,10 +44,9 @@ const (
 // remaining functions for each interface.
 type EthereumWallet struct {
 	base.WalletBase
-	testnet       bool
-	walletAddress *common.Address
-	client        *ethclient.EthClient
-	registry      *Registry
+	testnet  bool
+	client   *ethclient.EthClient
+	registry *Registry
 }
 
 // NewEthereumWallet returns a new EthereumWallet. This constructor
@@ -70,24 +70,26 @@ func NewEthereumWallet(cfg *base.WalletConfig) (*EthereumWallet, error) {
 		regAddr = RegistryAddressRinkeby
 	}
 
-	client, err := ethclient.NewEthClient(cfg.ClientUrl)
+	createRegistry := func(rpc *ethc.Client) (*common.Address, error) {
+		reg, err := NewRegistry(common.HexToAddress(regAddr), rpc)
+		if err != nil {
+			return nil, err
+		}
+
+		v, err := reg.GetRecommendedVersion(nil, "escrow")
+		if err != nil {
+			return nil, err
+		}
+
+		w.registry = reg
+		return &v.Implementation, nil
+	}
+
+	client, err := ethclient.NewEthClient(cfg.ClientUrl, createRegistry)
 	if err != nil {
 		return nil, err
 	}
 
-	reg, err := NewRegistry(common.HexToAddress(regAddr), client.RPC)
-	if err != nil {
-		return nil, err
-	}
-
-	v, err := reg.GetRecommendedVersion(nil, "escrow")
-	if err != nil {
-		return nil, err
-	}
-
-	client.ContractAddr = &v.Implementation
-
-	w.registry = reg
 	w.client = client
 	w.ChainClient = client
 	w.DB = cfg.DB
@@ -108,11 +110,16 @@ func NewEthereumWallet(cfg *base.WalletConfig) (*EthereumWallet, error) {
 // Wallets that only use a single address, like Ethereum, should save the
 // passed in order ID locally such as to associate payments with orders.
 func (w *EthereumWallet) NewAddress() (iwallet.Address, error) {
+	addr, err := w.Keychain.CurrentAddress(false)
+	if err != nil {
+		return addr, err
+	}
+
 	// Since this is only used for direct orders, we're going to pad the address
 	// with a random nonce so that we can associate it with the order.
 	r := make([]byte, 20)
 	rand.Read(r)
-	return iwallet.NewAddress(w.walletAddress.String()+hex.EncodeToString(r), iwallet.CtEthereum), nil
+	return iwallet.NewAddress(addr.String()+hex.EncodeToString(r), iwallet.CtEthereum), nil
 }
 
 // ValidateAddress validates that the serialization of the address is correct
@@ -180,12 +187,16 @@ func (w *EthereumWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.A
 		return iwallet.TransactionID(""), errors.New("tx is not expected type")
 	}
 
+	addr, err := w.Keychain.CurrentAddress(false)
+	if err != nil {
+		return iwallet.TransactionID(""), err
+	}
+
 	var (
 		txhash    iwallet.TransactionID
 		walletKey *hdkeychain.ExtendedKey
 		signedTx  *types.Transaction
-		err       error
-		from      = iwallet.NewAddress(w.walletAddress.String(), iwallet.CtEthereum)
+		from      = iwallet.NewAddress(addr.String(), iwallet.CtEthereum)
 	)
 	err = w.DB.View(func(dbtx database.Tx) error {
 		walletKey, err = w.Keychain.KeyForAddress(dbtx, from, nil)
@@ -202,7 +213,7 @@ func (w *EthereumWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.A
 
 	account := Account{
 		PrivateKey: priv.ToECDSA(),
-		Addr:       *w.walletAddress,
+		Addr:       common.HexToAddress(addr.String()),
 	}
 
 	gas, err := w.gas(feeLevel)
@@ -244,7 +255,7 @@ func (w *EthereumWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.A
 				From: []iwallet.SpendInfo{
 					{
 						Amount:  amt,
-						Address: iwallet.NewAddress(w.walletAddress.String(), iwallet.CtEthereum),
+						Address: iwallet.NewAddress(addr.String(), iwallet.CtEthereum),
 					},
 				},
 				To: []iwallet.SpendInfo{
@@ -258,8 +269,6 @@ func (w *EthereumWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.A
 				return err
 			}
 			return w.client.Broadcast(nil)
-
-			// TODO: send tx to subscribers
 		})
 	}
 
@@ -270,17 +279,17 @@ func (w *EthereumWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.A
 // address. It is expected for most coins that the fee will be subtracted
 // from the amount sent rather than added to it.
 func (w *EthereumWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level iwallet.FeeLevel) (iwallet.TransactionID, error) {
-	from := iwallet.NewAddress(w.walletAddress.String(), iwallet.CtEthereum)
+	from, err := w.Keychain.CurrentAddress(false)
+	if err != nil {
+		return iwallet.TransactionID(""), err
+	}
 
 	wbtx, ok := wtx.(*base.DBTx)
 	if !ok {
 		return iwallet.TransactionID(""), errors.New("tx is not expected type")
 	}
 
-	var (
-		walletKey *hdkeychain.ExtendedKey
-		err       error
-	)
+	var walletKey *hdkeychain.ExtendedKey
 	err = w.DB.View(func(dbtx database.Tx) error {
 		walletKey, err = w.Keychain.KeyForAddress(dbtx, from, nil)
 		return err
@@ -296,7 +305,7 @@ func (w *EthereumWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level i
 
 	account := Account{
 		PrivateKey: priv.ToECDSA(),
-		Addr:       *w.walletAddress,
+		Addr:       common.HexToAddress(from.String()),
 	}
 
 	gas, err := w.gas(level)
@@ -319,7 +328,7 @@ func (w *EthereumWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level i
 				From: []iwallet.SpendInfo{
 					{
 						Amount:  iwallet.NewAmount(signedTx.Value()),
-						Address: iwallet.NewAddress(w.walletAddress.String(), iwallet.CtEthereum),
+						Address: iwallet.NewAddress(from.String(), iwallet.CtEthereum),
 					},
 				},
 				To: []iwallet.SpendInfo{
@@ -333,8 +342,6 @@ func (w *EthereumWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level i
 				return err
 			}
 			return w.client.Broadcast(nil)
-
-			// TODO: send tx to subscribers
 		})
 	}
 	return txhash, nil

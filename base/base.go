@@ -162,7 +162,7 @@ func (w *WalletBase) OpenWallet() error {
 	w.Keychain = keychain
 	w.txMtx = sync.Mutex{}
 
-	subscriptionChan := make(chan iwallet.Transaction)
+	txSubChan := make(chan iwallet.Transaction)
 
 	config := &ChainConfig{
 		Client:             w.ChainClient,
@@ -170,7 +170,7 @@ func (w *WalletBase) OpenWallet() error {
 		Keychain:           keychain,
 		CoinType:           w.CoinType,
 		Logger:             w.Logger,
-		TxSubscriptionChan: subscriptionChan,
+		TxSubscriptionChan: txSubChan,
 	}
 
 	w.ChainManager = NewChainManager(config)
@@ -214,7 +214,7 @@ func (w *WalletBase) OpenWallet() error {
 				for _, sub := range blockSubs {
 					sub <- blockInfo
 				}
-			case tx := <-subscriptionChan:
+			case tx := <-txSubChan:
 				for _, sub := range txSubs {
 					sub <- tx
 				}

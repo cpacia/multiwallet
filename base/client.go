@@ -29,5 +29,7 @@ type ChainClient interface {
 
 	Broadcast(serializedTx []byte) error
 
+	Open() error
+
 	Close() error
 }

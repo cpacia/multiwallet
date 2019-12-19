@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"github.com/cenkalti/backoff"
 	"github.com/cpacia/multiwallet/base"
 	"github.com/cpacia/proxyclient"
 	iwallet "github.com/cpacia/wallet-interface"
@@ -18,6 +17,7 @@ import (
 	"math/rand"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -29,6 +29,7 @@ type BchdClient struct {
 	clientUrl string
 	conn      *grpc.ClientConn
 	subMtx    sync.Mutex
+	started   uint32
 	shutdown  chan struct{}
 	txSubs    map[int32]*base.TransactionSubscription
 	blockSubs map[int32]*base.BlockSubscription
@@ -37,21 +38,18 @@ type BchdClient struct {
 // NewBchdClient returns a new BchdClient connected to the provided URL.
 // Note this assumes the server is using a valid SSL certificate.
 func NewBchdClient(url string) (*BchdClient, error) {
-	client := &BchdClient{
+	return &BchdClient{
 		clientUrl: url,
 		subMtx:    sync.Mutex{},
 		shutdown:  make(chan struct{}),
 		txSubs:    make(map[int32]*base.TransactionSubscription),
 		blockSubs: make(map[int32]*base.BlockSubscription),
-	}
-	client.connect()
-
-	return client, nil
+	}, nil
 }
 
 func (c *BchdClient) GetBlockchainInfo() (iwallet.BlockInfo, error) {
-	if c.client == nil {
-		return iwallet.BlockInfo{}, errors.New("client not connected")
+	if atomic.LoadUint32(&c.started) == 0 {
+		return iwallet.BlockInfo{}, errors.New("bchd client not connected")
 	}
 	bcInfo, err := c.client.GetBlockchainInfo(context.Background(), &pb.GetBlockchainInfoRequest{})
 	if err != nil {
@@ -86,8 +84,8 @@ func (c *BchdClient) GetBlockchainInfo() (iwallet.BlockInfo, error) {
 }
 
 func (c *BchdClient) GetAddressTransactions(addr iwallet.Address, fromHeight uint64) ([]iwallet.Transaction, error) {
-	if c.client == nil {
-		return nil, errors.New("client not connected")
+	if atomic.LoadUint32(&c.started) == 0 {
+		return nil, errors.New("bchd client not connected")
 	}
 	resp, err := c.client.GetAddressTransactions(context.Background(), &pb.GetAddressTransactionsRequest{
 		Address: addr.String(),
@@ -120,8 +118,8 @@ func (c *BchdClient) GetAddressTransactions(addr iwallet.Address, fromHeight uin
 }
 
 func (c *BchdClient) GetTransaction(id iwallet.TransactionID) (iwallet.Transaction, error) {
-	if c.client == nil {
-		return iwallet.Transaction{}, errors.New("client not connected")
+	if atomic.LoadUint32(&c.started) == 0 {
+		return iwallet.Transaction{}, errors.New("bchd client not connected")
 	}
 	ch, err := chainhash.NewHashFromStr(id.String())
 	if err != nil {
@@ -139,8 +137,8 @@ func (c *BchdClient) GetTransaction(id iwallet.TransactionID) (iwallet.Transacti
 }
 
 func (c *BchdClient) IsBlockInMainChain(block iwallet.BlockInfo) (bool, error) {
-	if c.client == nil {
-		return false, errors.New("client not connected")
+	if atomic.LoadUint32(&c.started) == 0 {
+		return false, errors.New("bchd client not connected")
 	}
 	blockHash, err := chainhash.NewHashFromStr(block.BlockID.String())
 	if err != nil {
@@ -161,8 +159,8 @@ func (c *BchdClient) IsBlockInMainChain(block iwallet.BlockInfo) (bool, error) {
 }
 
 func (c *BchdClient) SubscribeTransactions(addrs []iwallet.Address) (*base.TransactionSubscription, error) {
-	if c.client == nil {
-		return nil, errors.New("client not connected")
+	if atomic.LoadUint32(&c.started) == 0 {
+		return nil, errors.New("bchd client not connected")
 	}
 	c.subMtx.Lock()
 	defer c.subMtx.Unlock()
@@ -264,8 +262,8 @@ func (c *BchdClient) SubscribeTransactions(addrs []iwallet.Address) (*base.Trans
 }
 
 func (c *BchdClient) SubscribeBlocks() (*base.BlockSubscription, error) {
-	if c.client == nil {
-		return nil, errors.New("client not connected")
+	if atomic.LoadUint32(&c.started) == 0 {
+		return nil, errors.New("bchd client not connected")
 	}
 	c.subMtx.Lock()
 	defer c.subMtx.Unlock()
@@ -321,8 +319,8 @@ func (c *BchdClient) SubscribeBlocks() (*base.BlockSubscription, error) {
 }
 
 func (c *BchdClient) Broadcast(serializedTx []byte) error {
-	if c.client == nil {
-		return errors.New("client not connected")
+	if atomic.LoadUint32(&c.started) == 0 {
+		return errors.New("bchd client not connected")
 	}
 	_, err := c.client.SubmitTransaction(context.Background(), &pb.SubmitTransactionRequest{
 		Transaction: serializedTx,
@@ -341,7 +339,7 @@ func (c *BchdClient) Close() error {
 	return nil
 }
 
-func (c *BchdClient) connect() {
+func (c *BchdClient) Open() error {
 	tlsOption := grpc.WithTransportCredentials(credentials.NewClientTLSFromCert(nil, ""))
 	opts := []grpc.DialOption{tlsOption}
 
@@ -355,29 +353,13 @@ func (c *BchdClient) connect() {
 	}
 
 	conn, err := grpc.Dial(c.clientUrl, opts...)
-	if err == nil {
-		c.conn = conn
-		c.client = pb.NewBchrpcClient(conn)
-		return
+	if err != nil {
+		return err
 	}
-
-	go func() {
-		bo := backoff.NewExponentialBackOff()
-		for {
-			conn, err := grpc.Dial(c.clientUrl, opts...)
-			if err != nil {
-				select {
-				case <-time.After(bo.NextBackOff()):
-					continue
-				case <-c.shutdown:
-					return
-				}
-			}
-			c.conn = conn
-			c.client = pb.NewBchrpcClient(conn)
-			break
-		}
-	}()
+	c.conn = conn
+	c.client = pb.NewBchrpcClient(conn)
+	atomic.AddUint32(&c.started, 1)
+	return nil
 }
 
 func buildTransaction(transaction *pb.Transaction) (iwallet.Transaction, error) {
