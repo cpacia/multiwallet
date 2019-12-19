@@ -78,6 +78,7 @@ type WalletBase struct {
 	ChainManager *ChainManager
 	ChainClient  ChainClient
 	Keychain     *Keychain
+	KeychainOpts []KeychainOption
 	DB           database.Database
 	CoinType     iwallet.CoinType
 	Logger       *logging.Logger
@@ -154,7 +155,7 @@ func (w *WalletBase) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time
 // Open wallet will be called each time on OpenBazaar start. It
 // will also be called after CreateWallet().
 func (w *WalletBase) OpenWallet() error {
-	keychain, err := NewKeychain(w.DB, w.CoinType, w.AddressFunc)
+	keychain, err := NewKeychain(w.DB, w.CoinType, w.AddressFunc, w.KeychainOpts...)
 	if err != nil {
 		return err
 	}
@@ -513,6 +514,13 @@ func (w *WalletBase) SubscribeBlocks() <-chan iwallet.BlockInfo {
 		blockSub: ch,
 	}
 	return ch
+}
+
+// CanReleaseFunds returns whether the wallet can release the funds from escrow. This MUST
+// return false if the wallet is encrypted or if there is insufficient coins in the wallet
+// to pay the transaction fee/gas. This method should not actually move any funds.
+func (w *WalletBase) CanReleaseFunds(txn iwallet.Transaction, signatures [][]iwallet.EscrowSignature, redeemScript []byte) (bool, error) {
+	return true, nil
 }
 
 // SetPassphase is called after creating the wallet. It gives the wallet

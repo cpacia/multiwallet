@@ -1,8 +1,8 @@
 package ethereum
 
 import (
-	"bytes"
 	"context"
+	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -14,7 +14,7 @@ import (
 	"github.com/cpacia/multiwallet/database"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -56,9 +56,13 @@ func NewEthereumWallet(cfg *base.WalletConfig) (*EthereumWallet, error) {
 		testnet: cfg.Testnet,
 	}
 
-	client, err := ethclient.NewEthClient(cfg.ClientUrl)
-	if err != nil {
-		return nil, err
+	w.KeychainOpts = []base.KeychainOption{
+		func(config *base.KeychainConfig) error {
+			config.DisableMarkAsUsed = true
+			config.LookaheadWindowSize = 1
+			config.ExternalOnly = true
+			return nil
+		},
 	}
 
 	regAddr := RegistryAddressMainnet
@@ -66,13 +70,26 @@ func NewEthereumWallet(cfg *base.WalletConfig) (*EthereumWallet, error) {
 		regAddr = RegistryAddressRinkeby
 	}
 
-	reg, err := NewRegistry(common.HexToAddress(regAddr), client)
+	client, err := ethclient.NewEthClient(cfg.ClientUrl)
 	if err != nil {
 		return nil, err
 	}
 
+	reg, err := NewRegistry(common.HexToAddress(regAddr), client.RPC)
+	if err != nil {
+		return nil, err
+	}
+
+	v, err := reg.GetRecommendedVersion(nil, "escrow")
+	if err != nil {
+		return nil, err
+	}
+
+	client.ContractAddr = &v.Implementation
+
 	w.registry = reg
 	w.client = client
+	w.ChainClient = client
 	w.DB = cfg.DB
 	w.Logger = cfg.Logger
 	w.CoinType = iwallet.CtEthereum
@@ -80,49 +97,6 @@ func NewEthereumWallet(cfg *base.WalletConfig) (*EthereumWallet, error) {
 	w.AddressFunc = w.keyToAddress
 
 	return w, nil
-}
-
-// Open wallet will be called each time on OpenBazaar start. It
-// will also be called after CreateWallet().
-func (w *EthereumWallet) OpenWallet() error {
-	keychain, err := base.NewKeychain(w.DB, w.CoinType, w.AddressFunc)
-	if err != nil {
-		return err
-	}
-	w.Keychain = keychain
-
-	addr, err := keychain.CurrentAddress(false)
-	if err != nil {
-		return err
-	}
-
-	waddr := common.HexToAddress(addr.String())
-	w.walletAddress = &waddr
-
-	// TODO:
-	return nil
-}
-
-// CloseWallet will be called when OpenBazaar shuts down.
-func (w *EthereumWallet) CloseWallet() error {
-	if w.client != nil {
-		w.client.Close()
-	}
-	return nil
-}
-
-// BlockchainInfo returns the best hash and height of the chain.
-func (w *EthereumWallet) BlockchainInfo() (iwallet.BlockInfo, error) {
-	return w.client.GetBlockchainInfo()
-}
-
-// CurrentAddress is called when requesting this wallet's receiving
-// address. It is customary that the wallet return the first unused
-// address and only return a different address after funds have been
-// received on the address. This, however, is just a wallet implementation
-// detail.
-func (w *EthereumWallet) CurrentAddress() (iwallet.Address, error) {
-	return iwallet.NewAddress(w.walletAddress.String(), iwallet.CtEthereum), nil
 }
 
 // NewAddress should return a new, never before used address. This is called
@@ -154,122 +128,6 @@ func (w *EthereumWallet) ValidateAddress(addr iwallet.Address) error {
 	return nil
 }
 
-// GetTransaction returns a transaction given it's ID.
-func (w *EthereumWallet) GetTransaction(id iwallet.TransactionID) (iwallet.Transaction, error) {
-	tx, _, err := w.client.GetTransaction(common.HexToHash(id.String()))
-	if err != nil {
-		return iwallet.Transaction{}, err
-	}
-
-	chainID, err := w.client.NetworkID(context.Background())
-	if err != nil {
-		return iwallet.Transaction{}, err
-	}
-
-	msg, err := tx.AsMessage(types.NewEIP155Signer(chainID))
-	if err != nil {
-		return iwallet.Transaction{}, err
-	}
-
-	fromAddr := iwallet.NewAddress(msg.From().String(), iwallet.CtEthereum)
-	toAddr := iwallet.NewAddress(msg.To().String(), iwallet.CtEthereum)
-
-	ver, err := w.registry.GetRecommendedVersion(nil, "escrow")
-	if err != nil {
-		return iwallet.Transaction{}, err
-	}
-
-	txn := iwallet.Transaction{
-		ID:    id,
-		Value: iwallet.NewAmount(tx.Value()),
-	}
-
-	if ver.Implementation.String() == toAddr.String() {
-		parsed, err := abi.JSON(strings.NewReader(EscrowABI))
-		if err != nil {
-			return iwallet.Transaction{}, err
-		}
-		fromVal := iwallet.NewAmount(msg.Value())
-		if bytes.HasPrefix(tx.Data(), []byte{0xe4, 0xec, 0x8b, 0x00}) { // execute
-			method, err := parsed.MethodById([]byte{0xe4, 0xec, 0x8b, 0x00})
-			if err != nil {
-				return iwallet.Transaction{}, err
-			}
-			m := make(map[string]interface{})
-			err = method.Inputs.UnpackIntoMap(m, tx.Data()[4:])
-			if err != nil {
-				return iwallet.Transaction{}, err
-			}
-			scriptHash := m["scriptHash"].([32]byte)
-			fromAddr = iwallet.NewAddress("0x"+hex.EncodeToString(scriptHash[:]), iwallet.CtEthereum)
-			amts := m["amounts"].([]*big.Int)
-			total := iwallet.NewAmount(0)
-			for i, destination := range m["destinations"].([]common.Address) {
-				txn.To = append(txn.To, iwallet.SpendInfo{
-					Address: iwallet.NewAddress(destination.String(), iwallet.CtEthereum),
-					Amount: iwallet.NewAmount(amts[i]),
-				})
-				total = total.Add(iwallet.NewAmount(amts[i]))
-			}
-			fromVal = total
-
-		} else if bytes.HasPrefix(tx.Data(), []byte{0x23, 0xb6, 0xfd, 0x3f}) { // addTransaction
-			method, err := parsed.MethodById([]byte{0x23, 0xb6, 0xfd, 0x3f})
-			if err != nil {
-				return iwallet.Transaction{}, err
-			}
-			m := make(map[string]interface{})
-			err = method.Inputs.UnpackIntoMap(m, tx.Data()[4:])
-			if err != nil {
-				return iwallet.Transaction{}, err
-			}
-
-			scriptHash := m["scriptHash"].([32]byte)
-			txn.To = []iwallet.SpendInfo{
-				{
-					Address: iwallet.NewAddress("0x"+hex.EncodeToString(scriptHash[:]), iwallet.CtEthereum),
-					Amount:  iwallet.NewAmount(msg.Value()),
-				},
-			}
-		}
-
-		txn.From = []iwallet.SpendInfo{
-			{
-				Address: iwallet.NewAddress(fromAddr.String(), iwallet.CtEthereum),
-				Amount:  fromVal,
-			},
-		}
-	} else {
-		if len(tx.Data()) > 0 {
-			toAddr = iwallet.NewAddress("0x"+hex.EncodeToString(tx.Data()), iwallet.CtEthereum)
-		}
-		txn.From = []iwallet.SpendInfo{
-			{
-				Address: iwallet.NewAddress(fromAddr.String(), iwallet.CtEthereum),
-				Amount:  iwallet.NewAmount(msg.Value()),
-			},
-		}
-		txn.To = []iwallet.SpendInfo{
-			{
-				Address: iwallet.NewAddress(toAddr.String(), iwallet.CtEthereum),
-				Amount:  iwallet.NewAmount(msg.Value()),
-			},
-		}
-	}
-	return txn, nil
-}
-
-// GetAddressTransactions returns the transactions sending to or spending from this address.
-// Note this will only ever be called for an order's payment address transaction so for the
-// purpose of this method the wallet only needs to be able to track transactions paid to a
-// wallet address and any watched addresses.
-func (w *EthereumWallet) GetAddressTransactions(addr iwallet.Address) ([]iwallet.Transaction, error) {
-	if addr.String() != w.walletAddress.String() {
-		return nil, nil
-	}
-	return []iwallet.Transaction{}, nil
-}
-
 // IsDust returns whether the amount passed in is considered dust by network. This
 // method is called when building payout transactions from the multisig to the various
 // participants. If the amount that is supposed to be sent to a given party is below
@@ -280,25 +138,9 @@ func (w *EthereumWallet) IsDust(amount iwallet.Amount) bool {
 	return false
 }
 
-// Transactions returns a slice of this wallet's transactions. The transactions should
-// be sorted last to first and the limit and offset respected. The offsetID means
-// 'return transactions starting with the transaction after offsetID in the sorted list'
-func (w *EthereumWallet) Transactions(limit int, offsetID iwallet.TransactionID) ([]iwallet.Transaction, error) {
-	//TODO:
-	return []iwallet.Transaction{}, nil
-}
-
 // Balance should return the confirmed and unconfirmed balance for the wallet.
 func (w *EthereumWallet) Balance() (unconfirmed iwallet.Amount, confirmed iwallet.Amount, err error) {
-	c, err := w.client.GetBalance(*w.walletAddress)
-	if err != nil {
-		return iwallet.NewAmount(0), iwallet.NewAmount(0), err
-	}
-	u, err := w.client.GetUnconfirmedBalance(*w.walletAddress)
-	if err != nil {
-		return iwallet.NewAmount(0), iwallet.NewAmount(0), err
-	}
-	return iwallet.NewAmount(u), iwallet.NewAmount(c), nil
+	return iwallet.NewAmount(0), iwallet.NewAmount(0), nil
 }
 
 // WatchAddress is used by the escrow system to tell the wallet to listen
@@ -341,7 +183,7 @@ func (w *EthereumWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.A
 	var (
 		txhash    iwallet.TransactionID
 		walletKey *hdkeychain.ExtendedKey
-		signedTx *types.Transaction
+		signedTx  *types.Transaction
 		err       error
 		from      = iwallet.NewAddress(w.walletAddress.String(), iwallet.CtEthereum)
 	)
@@ -415,7 +257,7 @@ func (w *EthereumWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.A
 			if err := dbtx.Save(&txn); err != nil {
 				return err
 			}
-			return w.client.Broadcast(signedTx)
+			return w.client.Broadcast(nil)
 
 			// TODO: send tx to subscribers
 		})
@@ -490,27 +332,12 @@ func (w *EthereumWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level i
 			if err := dbtx.Save(&txn); err != nil {
 				return err
 			}
-			return w.client.Broadcast(signedTx)
+			return w.client.Broadcast(nil)
 
 			// TODO: send tx to subscribers
 		})
 	}
 	return txhash, nil
-}
-
-// SubscribeTransactions returns a chan over which the wallet is expected
-// to push both transactions relevant for this wallet as well as transactions
-// sending to or spending from a watched address.
-func (w *EthereumWallet) SubscribeTransactions() <-chan iwallet.Transaction {
-	// TODO:
-	return nil
-}
-
-// SubscribeBlocks returns a chan over which the wallet is expected
-// to push info about new blocks when they arrive.
-func (w *EthereumWallet) SubscribeBlocks() <-chan iwallet.BlockInfo {
-	// TODO:
-	return nil
 }
 
 // EstimateEscrowFee estimates the fee to release the funds from escrow.
@@ -724,12 +551,12 @@ func (w *EthereumWallet) ReleaseFundsAfterTimeout(dbtx iwallet.Tx, txn iwallet.T
 func (w *EthereumWallet) buildTx(from *Account, destAccount common.Address, value *big.Int, spendAll bool, fee big.Int, data []byte) (*types.Transaction, error) {
 	var err error
 	fromAddress := from.Address()
-	nonce, err := w.client.PendingNonceAt(context.Background(), fromAddress)
+	nonce, err := w.client.RPC.PendingNonceAt(context.Background(), fromAddress)
 	if err != nil {
 		return nil, err
 	}
 
-	gasPrice, err := w.client.SuggestGasPrice(context.Background())
+	gasPrice, err := w.client.RPC.SuggestGasPrice(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -741,22 +568,23 @@ func (w *EthereumWallet) buildTx(from *Account, destAccount common.Address, valu
 	tvalue := value
 
 	msg := ethereum.CallMsg{From: fromAddress, Value: tvalue}
-	gasLimit, err := w.client.EstimateGas(context.Background(), msg)
+	gasLimit, err := w.client.RPC.EstimateGas(context.Background(), msg)
 	if err != nil {
 		return nil, err
 	}
 
 	// if spend all then we need to set the value = confirmedBalance - gas
 	if spendAll {
-		currentBalance, err := w.client.GetBalance(fromAddress)
+		_, confirmed, err := w.Balance()
 		if err != nil {
 			//currentBalance = big.NewInt(0)
 			return nil, err
 		}
+		bigConfirmed := big.Int(confirmed)
 		gas := new(big.Int).Mul(gasPrice, big.NewInt(int64(gasLimit)))
 
-		if currentBalance.Cmp(gas) >= 0 {
-			tvalue = new(big.Int).Sub(currentBalance, gas)
+		if bigConfirmed.Cmp(gas) >= 0 {
+			tvalue = new(big.Int).Sub(&bigConfirmed, gas)
 		}
 	}
 
@@ -796,9 +624,32 @@ func (w *EthereumWallet) keyToAddress(key *hdkeychain.ExtendedKey) (iwallet.Addr
 	return iwallet.NewAddress(addr.String(), iwallet.CtEthereum), nil
 }
 
-func extractRedeemScript(tx *types.Transaction) (_ []byte, incoming bool) {
-	if bytes.HasPrefix(tx.Data(), []byte{0xe4, 0xec, 0x8b, 0x00}) {
-		return tx.Data()[100: 132], false
+// newKeyedTransactor is a hack to allow us to get the txid of a smart contract transaction
+//  before the transaction is broadcast to the network. If hashChan is not nil, the txid
+// will be returned over the chan and the smart contract will not be executed. If it is nil
+// then it will be executed as normal. Thus to make a transaction AND get the ID before hand,
+// this will have to be called twice.
+func newKeyedTransactor(key *ecdsa.PrivateKey, hashChan chan common.Hash) *bind.TransactOpts {
+	keyAddr := crypto.PubkeyToAddress(key.PublicKey)
+	return &bind.TransactOpts{
+		From: keyAddr,
+		Signer: func(signer types.Signer, address common.Address, tx *types.Transaction) (*types.Transaction, error) {
+			if address != keyAddr {
+				return nil, errors.New("not authorized to sign this account")
+			}
+			signature, err := crypto.Sign(signer.Hash(tx).Bytes(), key)
+			if err != nil {
+				return nil, err
+			}
+			signedTx, err := tx.WithSignature(signer, signature)
+			if err != nil {
+				return nil, err
+			}
+			if hashChan != nil {
+				hashChan <- signedTx.Hash()
+				return nil, errors.New("transactor is sign only")
+			}
+			return signedTx, nil
+		},
 	}
-	return tx.Data()[164: 196], true
 }

@@ -14,8 +14,9 @@ require (
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.0.0
 	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/cpacia/proxyclient v0.0.0-20191212063311-f03265f1fade
-	github.com/cpacia/wallet-interface v0.0.0-20191211190928-d7ad7fbaf4ec
+	github.com/cpacia/wallet-interface v0.0.0-20191217232838-79018d77e07f
 	github.com/dchest/blake256 v1.1.0 // indirect
+	github.com/deckarep/golang-set v0.0.0-20180603214616-504e848d77ea
 	github.com/ethereum/go-ethereum v1.9.9
 	github.com/gcash/bchd v0.15.2
 	github.com/gcash/bchutil v0.0.0-20191012211144-98e73ec336ba
@@ -36,6 +37,7 @@ require (
 	github.com/nanmu42/etherscan-api v1.1.0
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
+	github.com/rs/cors v1.7.0
 	golang.org/x/crypto v0.0.0-20190923035154-9ee001bba392
 	golang.org/x/net v0.0.0-20191209160850-c0dbc17a3553
 	google.golang.org/grpc v1.25.1

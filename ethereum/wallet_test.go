@@ -1,6 +1,7 @@
 package ethereum
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/cpacia/multiwallet/base"
@@ -45,5 +46,13 @@ func TestEthereumWallet_CloseWallet(t *testing.T) {
 
 	defer w.CloseWallet()
 
-	fmt.Println(w.GetTransaction(iwallet.TransactionID("0x5a6f5c52df5790bd114704e58afb7ba071e90d9e4cd0b6accd5304a64137cfb5")))
+	tx, err := w.client.GetTransaction(iwallet.TransactionID("0x5a6f5c52df5790bd114704e58afb7ba071e90d9e4cd0b6accd5304a64137cfb5"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := json.MarshalIndent(&tx, "", "    ")
+	if err != nil {
+		t.Fatal()
+	}
+	fmt.Println(string(out))
 }

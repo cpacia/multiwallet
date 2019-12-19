@@ -7,6 +7,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	hd "github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/cpacia/multiwallet/database"
 	iwallet "github.com/cpacia/wallet-interface"
@@ -18,10 +19,10 @@ import (
 )
 
 const (
-	// lookaheadWindow is the number of keys to generate after the last
+	// defaultLookaheadWindow is the number of keys to generate after the last
 	// unused key in the wallet. The key manager strives to maintain
 	// this buffer.
-	lookaheadWindow = 10
+	defaultLookaheadWindow = 10
 
 	// defaultKdfRounds is the number of rounds to use when generating the
 	// encryption key. The greater this number is, the harder it is to
@@ -35,6 +36,27 @@ const (
 // ErrEncryptedKeychain means the keychain is encrypted.
 var ErrEncryptedKeychain = errors.New("keychain is encrypted")
 
+// KeychainConfig holds some optional configuration options for
+// the keychain.
+type KeychainConfig struct {
+	LookaheadWindowSize int
+	ExternalOnly        bool
+	DisableMarkAsUsed   bool
+}
+
+// Apply applies the given options to this Option
+func (cfg *KeychainConfig) Apply(opts ...KeychainOption) error {
+	for i, opt := range opts {
+		if err := opt(cfg); err != nil {
+			return fmt.Errorf("keychain option %d failed: %s", i, err)
+		}
+	}
+	return nil
+}
+
+// KeychainOption is a keychain option type.
+type KeychainOption func(*KeychainConfig) error
+
 // Keychain manages a Bip44 keychain for each coin.
 type Keychain struct {
 	db              database.Database
@@ -43,6 +65,10 @@ type Keychain struct {
 
 	externalPrivkey *hd.ExtendedKey
 	externalPubkey  *hd.ExtendedKey
+
+	lookaheadWindowSize int
+	externalOnly        bool
+	disableMarkAsUsed   bool
 
 	coinType iwallet.CoinType
 
@@ -62,7 +88,11 @@ type Keychain struct {
 // deriving keys for other coins. Further, we only generate addresses using the master
 // public key keys so we do not need the master private key to generate new addresses.
 // This allows us to encrypt the master private key if the user desires.
-func NewKeychain(db database.Database, coinType iwallet.CoinType, addressFunc func(key *hd.ExtendedKey) (iwallet.Address, error)) (*Keychain, error) {
+func NewKeychain(db database.Database, coinType iwallet.CoinType, addressFunc func(key *hd.ExtendedKey) (iwallet.Address, error), opts ...KeychainOption) (*Keychain, error) {
+	cfg := KeychainConfig{LookaheadWindowSize: defaultLookaheadWindow}
+	if err := cfg.Apply(opts...); err != nil {
+		return nil, err
+	}
 	var (
 		externalPrivkey, externalPubkey, internalPrivkey, internalPubkey *hd.ExtendedKey
 		coinRecord                                                       database.CoinRecord
@@ -99,14 +129,17 @@ func NewKeychain(db database.Database, coinType iwallet.CoinType, addressFunc fu
 	}
 
 	kc := &Keychain{
-		db:              db,
-		internalPrivkey: internalPrivkey,
-		internalPubkey:  internalPubkey,
-		externalPrivkey: externalPrivkey,
-		externalPubkey:  externalPubkey,
-		coinType:        coinType,
-		addrFunc:        addressFunc,
-		mtx:             sync.RWMutex{},
+		db:                  db,
+		internalPrivkey:     internalPrivkey,
+		internalPubkey:      internalPubkey,
+		externalPrivkey:     externalPrivkey,
+		externalPubkey:      externalPubkey,
+		lookaheadWindowSize: cfg.LookaheadWindowSize,
+		externalOnly:        cfg.ExternalOnly,
+		disableMarkAsUsed:   cfg.DisableMarkAsUsed,
+		coinType:            coinType,
+		addrFunc:            addressFunc,
+		mtx:                 sync.RWMutex{},
 	}
 	if err := kc.ExtendKeychain(); err != nil {
 		return nil, err
@@ -410,6 +443,9 @@ func (kc *Keychain) GetAddresses() ([]iwallet.Address, error) {
 
 // CurrentAddress returns the first unused address.
 func (kc *Keychain) CurrentAddress(change bool) (iwallet.Address, error) {
+	if change && kc.externalOnly {
+		return iwallet.Address{}, errors.New("keychain is configured for external addresses only")
+	}
 	var record database.AddressRecord
 	err := kc.db.View(func(tx database.Tx) error {
 		return tx.Read().Order("key_index asc").Where("coin=?", kc.coinType.CurrencyCode()).Where("used=?", false).Where("change=?", change).First(&record).Error
@@ -531,6 +567,9 @@ func (kc *Keychain) KeyForAddress(dbtx database.Tx, addr iwallet.Address, accoun
 
 // MarkAddressAsUsed marks the given address as used and extends the keychain.
 func (kc *Keychain) MarkAddressAsUsed(dbtx database.Tx, addr iwallet.Address) error {
+	if kc.disableMarkAsUsed {
+		return nil
+	}
 	var record database.AddressRecord
 	err := dbtx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
 	if err != nil {
@@ -566,13 +605,15 @@ func (kc *Keychain) extendKeychain(tx database.Tx) error {
 	if err != nil {
 		return err
 	}
-	if internalUnused < lookaheadWindow {
-		if err := kc.createNewKeys(tx, true, lookaheadWindow-internalUnused); err != nil {
-			return err
+	if !kc.externalOnly {
+		if internalUnused < kc.lookaheadWindowSize {
+			if err := kc.createNewKeys(tx, true, kc.lookaheadWindowSize-internalUnused); err != nil {
+				return err
+			}
 		}
 	}
-	if externalUnused < lookaheadWindow {
-		if err := kc.createNewKeys(tx, false, lookaheadWindow-externalUnused); err != nil {
+	if externalUnused < kc.lookaheadWindowSize {
+		if err := kc.createNewKeys(tx, false, kc.lookaheadWindowSize-externalUnused); err != nil {
 			return err
 		}
 	}

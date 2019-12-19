@@ -288,7 +288,9 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 			if cm.eventBus != nil {
 				cm.eventBus.Emit(&BlockReceivedEvent{})
 			}
-			cm.logger.Debugf("[%s] Block received at height: %d", cm.coinType, blockInfo.Height)
+			if time.Since(previousBest.BlockTime) > time.Minute*5 {
+				cm.logger.Debugf("[%s] Block received at height: %d", cm.coinType, blockInfo.Height)
+			}
 		case <-cm.done:
 			transactionSub.Close()
 			blocksSub.Close()
