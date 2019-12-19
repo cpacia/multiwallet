@@ -179,6 +179,7 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 	scanSem := make(chan struct{}, 1)
 	scanSem <- struct{}{}
 
+	var lastBlockNotifyTime time.Time
 	for {
 		select {
 		case m := <-cm.msgChan:
@@ -288,7 +289,8 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 			if cm.eventBus != nil {
 				cm.eventBus.Emit(&BlockReceivedEvent{})
 			}
-			if time.Since(previousBest.BlockTime) > time.Minute*5 {
+			if time.Since(lastBlockNotifyTime) > time.Minute*5 {
+				lastBlockNotifyTime = time.Now()
 				cm.logger.Debugf("[%s] Block received at height: %d", cm.coinType, blockInfo.Height)
 			}
 		case <-cm.done:
