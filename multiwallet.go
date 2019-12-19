@@ -8,6 +8,7 @@ import (
 	"github.com/cpacia/multiwallet/bitcoincash"
 	"github.com/cpacia/multiwallet/database"
 	"github.com/cpacia/multiwallet/database/sqlitedb"
+	"github.com/cpacia/multiwallet/ethereum"
 	"github.com/cpacia/multiwallet/litecoin"
 	"github.com/cpacia/multiwallet/zcash"
 	iwallet "github.com/cpacia/wallet-interface"
@@ -124,6 +125,22 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 				clientUrl = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := zcash.NewZCashWallet(&base.WalletConfig{
+				Logger:    logger,
+				DB:        db,
+				ClientUrl: clientUrl,
+				Testnet:   cfg.UseTestnet,
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			multiwallet[coinType] = w
+		case iwallet.CtEthereum:
+			clientUrl := cfg.WalletAPIs[coinType].Mainnet
+			if cfg.UseTestnet {
+				clientUrl = cfg.WalletAPIs[coinType].Testnet
+			}
+			w, err := ethereum.NewEthereumWallet(&base.WalletConfig{
 				Logger:    logger,
 				DB:        db,
 				ClientUrl: clientUrl,
