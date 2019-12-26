@@ -213,7 +213,7 @@ func (kc *Keychain) ChangePassphrase(old, new []byte) error {
 	kc.mtx.Lock()
 	defer kc.mtx.Unlock()
 
-	if !kc.IsEncrypted() {
+	if kc.internalPrivkey != nil || kc.externalPrivkey != nil {
 		return errors.New("wallet is not encrypted")
 	}
 
@@ -301,7 +301,7 @@ func (kc *Keychain) RemovePassphrase(pw []byte) error {
 	kc.mtx.Lock()
 	defer kc.mtx.Unlock()
 
-	if !kc.IsEncrypted() {
+	if kc.internalPrivkey != nil || kc.externalPrivkey != nil {
 		return errors.New("wallet is not encrypted")
 	}
 
@@ -360,7 +360,7 @@ func (kc *Keychain) Unlock(pw []byte, howLong time.Duration) error {
 	kc.mtx.Lock()
 	defer kc.mtx.Unlock()
 
-	if !kc.IsEncrypted() {
+	if kc.internalPrivkey != nil || kc.externalPrivkey != nil {
 		return errors.New("wallet is not encrypted")
 	}
 
@@ -623,13 +623,13 @@ func (kc *Keychain) extendKeychain(tx database.Tx) error {
 func (kc *Keychain) createNewKeys(dbtx database.Tx, change bool, numKeys int) error {
 	var (
 		record        database.AddressRecord
-		nextIndex     = record.KeyIndex + 1
 		generatedKeys = 0
 	)
-	err := dbtx.Read().Order("key_index desc").Where("coin=?", kc.coinType.CurrencyCode()).Where("used=?", true).Where("change=?", change).First(&record).Error
+	err := dbtx.Read().Order("key_index desc").Where("coin=?", kc.coinType.CurrencyCode()).Where("change=?", change).First(&record).Error
 	if err != nil && !gorm.IsRecordNotFoundError(err) {
 		return err
 	}
+	nextIndex := record.KeyIndex + 1
 	if gorm.IsRecordNotFoundError(err) {
 		nextIndex = 0
 	}

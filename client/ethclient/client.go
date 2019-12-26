@@ -78,6 +78,9 @@ func (c *EthClient) GetBlockchainInfo() (iwallet.BlockInfo, error) {
 }
 
 func (c *EthClient) GetAddressTransactions(addr iwallet.Address, fromHeight uint64) ([]iwallet.Transaction, error) {
+	if atomic.LoadUint32(&c.started) == 0 {
+		return nil, errors.New("rpc client not connected")
+	}
 	type transactionsResult struct {
 		Result []jsonTransaction `json:"result"`
 	}
@@ -111,6 +114,9 @@ func (c *EthClient) GetAddressTransactions(addr iwallet.Address, fromHeight uint
 }
 
 func (c *EthClient) GetTransaction(id iwallet.TransactionID) (iwallet.Transaction, error) {
+	if atomic.LoadUint32(&c.started) == 0 {
+		return iwallet.Transaction{}, errors.New("rpc client not connected")
+	}
 	type transactionsResult struct {
 		Result jsonTransaction `json:"result"`
 	}
@@ -278,6 +284,36 @@ func (c *EthClient) Broadcast(serializedTx []byte) error {
 	}
 }
 
+func (c *EthClient) Open() error {
+	conn, err := rpc.DialHTTPWithClient(c.url, proxyclient.NewHttpClient())
+	if err != nil {
+		return err
+	}
+
+	// FIXME: this needs to respect Tor proxy.
+	ws, err := rpc.DialWebsocket(context.Background(), strings.Replace(c.url, "https", "wss", 1)+"/ws", "")
+	if err != nil {
+		conn.Close()
+		return err
+	}
+
+	rpc := ethclient.NewClient(conn)
+
+	contractAddr, err := c.createRegistryFunc(rpc)
+	if err != nil {
+		ws.Close()
+		conn.Close()
+		return err
+	}
+
+	c.contractAddr = contractAddr
+	c.RPC = rpc
+	c.WS = ethclient.NewClient(ws)
+
+	atomic.AddUint32(&c.started, 1)
+	return nil
+}
+
 func (c *EthClient) Close() error {
 	close(c.shutdown)
 	if c.RPC != nil {
@@ -366,35 +402,6 @@ func (c *EthClient) GetEthGasStationEstimate() (*EthGasStationData, error) {
 		return nil, err
 	}
 	return s, nil
-}
-
-func (c *EthClient) Open() error {
-	conn, err := rpc.DialHTTPWithClient(c.url, proxyclient.NewHttpClient())
-	if err != nil {
-		return err
-	}
-
-	ws, err := rpc.DialWebsocket(context.Background(), strings.Replace(c.url, "https", "wss", 1)+"/ws", "")
-	if err != nil {
-		conn.Close()
-		return err
-	}
-
-	rpc := ethclient.NewClient(conn)
-
-	contractAddr, err := c.createRegistryFunc(rpc)
-	if err != nil {
-		ws.Close()
-		conn.Close()
-		return err
-	}
-
-	c.contractAddr = contractAddr
-	c.RPC = rpc
-	c.WS = ethclient.NewClient(ws)
-
-	atomic.AddUint32(&c.started, 1)
-	return nil
 }
 
 type jsonTransaction struct {

@@ -267,6 +267,10 @@ func (m *MockChainClient) BroadcastInternal(tx iwallet.Transaction) error {
 	return nil
 }
 
+func (m *MockChainClient) Open() error {
+	return nil
+}
+
 func (m *MockChainClient) Close() error {
 	return nil
 }

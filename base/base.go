@@ -161,6 +161,7 @@ func (w *WalletBase) OpenWallet() error {
 	}
 	w.Keychain = keychain
 	w.txMtx = sync.Mutex{}
+	w.subscriptionChan = make(chan *subscription)
 
 	txSubChan := make(chan iwallet.Transaction)
 
@@ -403,12 +404,12 @@ func (w *WalletBase) Balance() (unconfirmed iwallet.Amount, confirmed iwallet.Am
 
 		for _, utxo := range utxoRecords {
 			if utxo.Height > 0 {
-				confirmed.Add(iwallet.NewAmount(utxo.Amount))
+				confirmed = confirmed.Add(iwallet.NewAmount(utxo.Amount))
 			} else {
 				if checkIfStxoIsConfirmed(iwallet.TransactionID(utxo.Outpoint[:64]), txMap) {
-					confirmed.Add(iwallet.NewAmount(utxo.Amount))
+					confirmed = confirmed.Add(iwallet.NewAmount(utxo.Amount))
 				} else {
-					unconfirmed.Add(iwallet.NewAmount(utxo.Amount))
+					unconfirmed = unconfirmed.Add(iwallet.NewAmount(utxo.Amount))
 				}
 			}
 		}

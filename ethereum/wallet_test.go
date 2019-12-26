@@ -48,6 +48,8 @@ func TestEthereumWallet_CloseWallet(t *testing.T) {
 
 	defer w.CloseWallet()
 
+	time.Sleep(time.Second * 5)
+
 	tx, err := w.client.GetTransaction(iwallet.TransactionID("0x5a6f5c52df5790bd114704e58afb7ba071e90d9e4cd0b6accd5304a64137cfb5"))
 	if err != nil {
 		t.Fatal(err)
