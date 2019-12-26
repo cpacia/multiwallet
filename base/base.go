@@ -84,6 +84,7 @@ type WalletBase struct {
 	Logger       *logging.Logger
 	AddressFunc  func(key *hd.ExtendedKey) (iwallet.Address, error)
 
+	rebroacaster     *Rebroadcaster
 	subscriptionChan chan *subscription
 	txMtx            sync.Mutex
 
@@ -181,12 +182,15 @@ func (w *WalletBase) OpenWallet() error {
 
 	go func() {
 		var (
-			blockSub *BlockSubscription
-			bo       = expbackoff.NewExponentialBackOff()
+			blockSub1  *BlockSubscription
+			blockSub2  *BlockSubscription
+			bo         = expbackoff.NewExponentialBackOff()
+			err1, err2 error
 		)
 		for {
-			blockSub, err = w.ChainClient.SubscribeBlocks()
-			if err != nil {
+			blockSub1, err1 = w.ChainClient.SubscribeBlocks()
+			blockSub2, err2 = w.ChainClient.SubscribeBlocks()
+			if err1 != nil || err2 != nil {
 				select {
 				case <-time.After(bo.NextBackOff()):
 					continue
@@ -196,6 +200,9 @@ func (w *WalletBase) OpenWallet() error {
 			}
 			break
 		}
+
+		w.rebroacaster = NewRebroadcaster(w.DB, w.Logger, w.CoinType, w.ChainClient.Broadcast, blockSub2)
+		go w.rebroacaster.Start()
 
 		var (
 			blockSubs []chan iwallet.BlockInfo
@@ -211,7 +218,7 @@ func (w *WalletBase) OpenWallet() error {
 				if sub.txSub != nil {
 					txSubs = append(txSubs, sub.txSub)
 				}
-			case blockInfo := <-blockSub.Out:
+			case blockInfo := <-blockSub1.Out:
 				for _, sub := range blockSubs {
 					sub <- blockInfo
 				}
@@ -236,6 +243,10 @@ func (w *WalletBase) CloseWallet() error {
 	if err := w.ChainClient.Close(); err != nil {
 		return err
 	}
+	if w.rebroacaster != nil {
+		w.rebroacaster.Stop()
+	}
+
 	close(w.Done)
 	return nil
 }
