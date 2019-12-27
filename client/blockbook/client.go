@@ -118,6 +118,10 @@ func (c *BlockbookClient) GetBlockchainInfo() (iwallet.BlockInfo, error) {
 	}, nil
 }
 
+type resultAddressTxids struct {
+	Result []string `json:"result"`
+}
+
 func (c *BlockbookClient) GetAddressTransactions(addr iwallet.Address, fromHeight uint64) ([]iwallet.Transaction, error) {
 	if atomic.LoadUint32(&c.started) == 0 {
 		return nil, errors.New("blockbook client not connected")
@@ -134,18 +138,12 @@ func (c *BlockbookClient) GetAddressTransactions(addr iwallet.Address, fromHeigh
 		return nil, err
 	}
 
-	type (
-		txids struct {
-			Result []string `json:"result"`
-		}
+	type txOrError struct {
+		tx  iwallet.Transaction
+		err error
+	}
 
-		txOrError struct {
-			tx  iwallet.Transaction
-			err error
-		}
-	)
-
-	var ids txids
+	var ids resultAddressTxids
 	if err := json.Unmarshal([]byte(resp), &ids); err != nil {
 		return nil, err
 	}
@@ -246,7 +244,7 @@ func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.
 		"bitcoind/addresstxid",
 		addrStrs,
 	}
-	if err := c.socket.Emit("subscribe", args); err != nil {
+	if err := c.socket.Emit("subscribe", protocol.ToArgArray(args)); err != nil {
 		return nil, err
 	}
 
@@ -279,7 +277,7 @@ func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.
 					"bitcoind/addresstxid",
 					addrStrs,
 				}
-				c.socket.Emit("subscribe", args)
+				c.socket.Emit("subscribe", protocol.ToArgArray(args))
 			}
 		}
 	}()
@@ -308,7 +306,6 @@ func (c *BlockbookClient) SubscribeBlocks() (*base.BlockSubscription, error) {
 		c.subMtx.Unlock()
 		close(sub.Out)
 	}
-
 	if err := c.socket.Emit("subscribe", protocol.ToArgArray("bitcoind/hashblock")); err != nil {
 		return nil, err
 	}
@@ -333,8 +330,12 @@ func (c *BlockbookClient) Broadcast(serializedTx []byte) error {
 }
 
 func (c *BlockbookClient) Open() error {
-	socketUrl := strings.Replace(strings.TrimSuffix(c.clientUrl, "/api"), "https://", "wss://", 1)
-
+	var socketUrl string
+	if strings.HasPrefix(c.clientUrl, "https") {
+		socketUrl = strings.Replace(strings.TrimSuffix(c.clientUrl, "/api"), "https://", "wss://", 1)
+	} else if strings.HasPrefix(c.clientUrl, "http") {
+		socketUrl = strings.Replace(strings.TrimSuffix(c.clientUrl, "/api"), "http://", "ws://", 1)
+	}
 	socket, err := gosocketio.Dial(socketUrl+"/socket.io/", GetDefaultWebsocketTransport())
 	if err != nil {
 		return err
@@ -394,43 +395,6 @@ func (c *BlockbookClient) Close() error {
 	return nil
 }
 
-func (c *BlockbookClient) listenEvents(socket *gosocketio.Client) error {
-	err := socket.On("bitcoind/addresstxid", func(h *gosocketio.Channel, arg interface{}) {
-		m, ok := arg.(map[string]interface{})
-		if !ok {
-			return
-		}
-		for _, v := range m {
-			txid, ok := v.(string)
-			if !ok {
-				return
-			}
-			tx, err := c.GetTransaction(iwallet.TransactionID(txid))
-			if err == nil {
-				c.subMtx.Lock()
-				for _, sub := range c.txSubs {
-					sub.Out <- tx
-				}
-				c.subMtx.Unlock()
-			}
-		}
-	})
-	if err != nil {
-		return err
-	}
-	return socket.On("bitcoind/hashblock", func(h *gosocketio.Channel, arg interface{}) {
-		info, err := c.GetBlockchainInfo()
-		if err != nil {
-			return
-		}
-		c.subMtx.Lock()
-		for _, sub := range c.blockSubs {
-			sub.Out <- info
-		}
-		c.subMtx.Unlock()
-	})
-}
-
 type transaction struct {
 	Txid    string `json:"txid"`
 	Version int    `json:"version"`
@@ -441,6 +405,7 @@ type transaction struct {
 		Value     string   `json:"value"`
 	} `json:"vin"`
 	Vout []struct {
+		N            int    `json:"n"`
 		Value        string `json:"value"`
 		ScriptPubkey struct {
 			Addresses []string `json:"addresses"`
@@ -488,9 +453,13 @@ func buildTransaction(transaction *transaction, ct iwallet.CoinType) (iwallet.Tr
 			return tx, err
 		}
 
+		id := make([]byte, 36)
+		copy(id[:32], prevHash)
+		copy(id[32:], index)
+
 		from := iwallet.SpendInfo{
 			Amount: iwallet.NewAmount(uint64(amt.ToUnit(btcutil.AmountSatoshi))),
-			ID:     append(prevHash, index...),
+			ID:     id,
 		}
 		if len(in.Addresses) > 0 {
 			from.Address = iwallet.NewAddress(in.Addresses[0], ct)
@@ -504,9 +473,9 @@ func buildTransaction(transaction *transaction, ct iwallet.CoinType) (iwallet.Tr
 		return tx, err
 	}
 
-	for i, out := range transaction.Vout {
+	for _, out := range transaction.Vout {
 		index := make([]byte, 4)
-		binary.LittleEndian.PutUint32(index, uint32(i))
+		binary.LittleEndian.PutUint32(index, uint32(out.N))
 
 		f, err := strconv.ParseFloat(out.Value, 64)
 		if err != nil {
@@ -518,15 +487,18 @@ func buildTransaction(transaction *transaction, ct iwallet.CoinType) (iwallet.Tr
 			return tx, err
 		}
 
+		id := make([]byte, 36)
+		copy(id[:32], txidBytes)
+		copy(id[32:], index)
+
 		to := iwallet.SpendInfo{
 			Amount: iwallet.NewAmount(uint64(amt.ToUnit(btcutil.AmountSatoshi))),
-			ID:     append(txidBytes, index...),
+			ID:     id,
 		}
 
 		if len(out.ScriptPubkey.Addresses) != 0 {
 			to.Address = iwallet.NewAddress(out.ScriptPubkey.Addresses[0], ct)
 		}
-
 		tx.To = append(tx.To, to)
 	}
 	return tx, nil

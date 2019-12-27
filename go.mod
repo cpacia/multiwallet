@@ -25,7 +25,7 @@ require (
 	github.com/hunterlong/tokenbalance v0.0.11 // indirect
 	github.com/jarcoal/httpmock v1.0.4
 	github.com/jinzhu/gorm v1.9.11
-	github.com/labstack/gommon v0.3.0 // indirect
+	github.com/labstack/gommon v0.3.0
 	github.com/ltcsuite/ltcd v0.0.0-20191214120725-004941532b74
 	github.com/ltcsuite/ltcutil v0.0.0-20190507133322-23cdfa9fcc3d
 	github.com/ltcsuite/ltcwallet v0.0.0-20190105125346-3fa612e326e5
