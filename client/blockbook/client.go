@@ -244,7 +244,8 @@ func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.
 		"bitcoind/addresstxid",
 		addrStrs,
 	}
-	if err := c.socket.Emit("subscribe", protocol.ToArgArray(args)); err != nil {
+
+	if err := c.socket.Emit("subscribe", args); err != nil {
 		return nil, err
 	}
 
@@ -277,7 +278,7 @@ func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.
 					"bitcoind/addresstxid",
 					addrStrs,
 				}
-				c.socket.Emit("subscribe", protocol.ToArgArray(args))
+				c.socket.Emit("subscribe", args)
 			}
 		}
 	}()

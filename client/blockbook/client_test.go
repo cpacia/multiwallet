@@ -133,6 +133,7 @@ func TestBlockbookClient_GetAddressTransactions(t *testing.T) {
 
 	serveMux.Handle("/socket.io/", server)
 	go http.ListenAndServe("127.00.1:8080", serveMux)
+	<-time.After(time.Second)
 
 	client, err := NewBlockbookClient("http://localhost:8080", iwallet.CtMock)
 	if err != nil {
@@ -286,6 +287,7 @@ func TestBlockbookClient_SubscribeBlocks(t *testing.T) {
 
 	serveMux.Handle("/socket.io/", server)
 	go http.ListenAndServe("127.0.0.1:8081", serveMux)
+	<-time.After(time.Second)
 
 	client, err := NewBlockbookClient("http://localhost:8081", iwallet.CtMock)
 	if err != nil {
@@ -337,6 +339,7 @@ func TestBlockbookClient_OpenClose(t *testing.T) {
 
 	serveMux.Handle("/socket.io/", server)
 	go http.ListenAndServe("127.0.0.1:8083", serveMux)
+	<-time.After(time.Second)
 
 	client, err := NewBlockbookClient("http://localhost:8083", iwallet.CtMock)
 	if err != nil {

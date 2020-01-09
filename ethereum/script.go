@@ -12,7 +12,7 @@ import (
 // <uniqueId: 20><threshold:1><timeoutHours:4><buyer:20><seller:20>
 // <moderator:20><multisigAddress:20><tokenAddress:20>
 type EthRedeemScript struct {
-	TxnID           []byte
+	TxnID           [20]byte
 	Threshold       uint8
 	Timeout         uint32
 	Buyer           common.Address
@@ -44,7 +44,7 @@ func (e *EthRedeemScript) ScriptHash() ([32]byte, error) {
 	serializedTimeout := make([]byte, 4)
 	binary.BigEndian.PutUint32(serializedTimeout, e.Timeout)
 
-	ser := append(e.TxnID, append([]byte{e.Threshold},
+	ser := append(e.TxnID[:], append([]byte{e.Threshold},
 		append(serializedTimeout[:], append(e.Buyer.Bytes(),
 			append(e.Vendor.Bytes(), append(e.Moderator.Bytes(),
 				append(e.MultisigAddress.Bytes())...)...)...)...)...)...)

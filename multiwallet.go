@@ -58,6 +58,7 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 		logger.SetBackend(leveledBackend)
 	}
 
+	os.MkdirAll(cfg.DataDir, os.ModePerm)
 	db, err := sqlitedb.NewSqliteDB(cfg.DataDir)
 	if err != nil {
 		return nil, err

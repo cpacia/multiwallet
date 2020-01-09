@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/gorilla/websocket"
 	"github.com/nanmu42/etherscan-api"
 	"io/ioutil"
 	"math/big"
@@ -289,12 +290,30 @@ func (c *EthClient) Open() error {
 	if err != nil {
 		return err
 	}
+	var ws *rpc.Client
 
-	// FIXME: this needs to respect Tor proxy.
-	ws, err := rpc.DialWebsocket(context.Background(), strings.Replace(c.url, "https", "wss", 1)+"/ws", "")
-	if err != nil {
-		conn.Close()
-		return err
+	proxyDialer, err := proxyclient.DialFunc()
+	if err == nil {
+		dialer := websocket.DefaultDialer
+		proxyDialerCtx, err := proxyclient.DialContextFunc()
+		if err != nil {
+			return err
+		}
+
+		dialer.NetDial = proxyDialer
+		dialer.NetDialContext = proxyDialerCtx
+
+		ws, err = rpc.DialWebsocketWithDialer(context.Background(), strings.Replace(c.url, "https", "wss", 1)+"/ws", "", *dialer)
+		if err != nil {
+			conn.Close()
+			return err
+		}
+	} else {
+		ws, err = rpc.DialWebsocket(context.Background(), strings.Replace(c.url, "https", "wss", 1)+"/ws", "")
+		if err != nil {
+			conn.Close()
+			return err
+		}
 	}
 
 	rpc := ethclient.NewClient(conn)

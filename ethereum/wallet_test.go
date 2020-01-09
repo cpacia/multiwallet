@@ -22,9 +22,9 @@ func TestEthereumWallet_CloseWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 	w, err := NewEthereumWallet(&base.WalletConfig{
-		ClientUrl: "https://rinkeby.infura.io",
+		ClientUrl: "https://mainnet.infura.io",
 		DB:        db,
-		Testnet:   true,
+		Testnet:   false,
 		Logger:    logging.MustGetLogger("eth"),
 	})
 	if err != nil {
@@ -56,7 +56,19 @@ func TestEthereumWallet_CloseWallet(t *testing.T) {
 	}
 	out, err := json.MarshalIndent(&tx, "", "    ")
 	if err != nil {
-		t.Fatal()
+		t.Fatal(err)
+	}
+	fmt.Println(string(out))
+
+	sub, err := w.client.SubscribeTransactions([]iwallet.Address{iwallet.NewAddress("0x876EabF441B2EE5B5b0554Fd502a8E0600950cFa", iwallet.CtEthereum)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tx2 := <-sub.Out
+	out, err = json.MarshalIndent(&tx2, "", "    ")
+	if err != nil {
+		t.Fatal(err)
 	}
 	fmt.Println(string(out))
 }
