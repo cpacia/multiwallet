@@ -390,6 +390,29 @@ func (cm *ChainManager) ScanTransactions(fromHeight uint64) {
 	errChan := make(chan error)
 	defer close(errChan)
 
+	// Since this is a rescan we remove unconfirmed txs from the db prior to running
+	// the rescan. If these txs managed to confirm, or if they are still unconfirmed,
+	// then this function will just add them back. However, if they were killed by a
+	// double spend it will clean up our state and reset our utxo set back to what it
+	// should be.
+	err := cm.db.Update(func(dbtx database.Tx) error {
+		var savedTxs []database.TransactionRecord
+		if err := dbtx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedTxs).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
+			return err
+		}
+		for _, rec := range savedTxs {
+			if rec.BlockHeight == 0 {
+				if err := dbtx.Delete("txid", rec.Txid, &database.TransactionRecord{}); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		cm.logger.Errorf("[%s] Error deleting unconfirms from database: %s", cm.coinType, err)
+	}
+
 	for {
 		cm.logger.Debugf("[%s] Scanning transactions", cm.coinType)
 		cm.msgChan <- &scanJob{
