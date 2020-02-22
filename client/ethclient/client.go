@@ -8,8 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	gosocketio "github.com/OpenBazaar/golang-socketio"
+	"github.com/OpenBazaar/golang-socketio/protocol"
 	"github.com/cenkalti/backoff"
 	"github.com/cpacia/multiwallet/base"
+	"github.com/cpacia/multiwallet/client/blockbook"
 	"github.com/cpacia/proxyclient"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/ethereum/go-ethereum"
@@ -18,12 +21,12 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/gorilla/websocket"
 	"github.com/nanmu42/etherscan-api"
 	"io/ioutil"
 	"math/big"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -36,10 +39,11 @@ const EscrowABI = "[{\"constant\":false,\"inputs\":[{\"name\":\"buyer\",\"type\"
 // EthClient represents the eth client
 type EthClient struct {
 	RPC                *ethclient.Client
-	WS                 *ethclient.Client
+	socket             *gosocketio.Client
 	createRegistryFunc func(client *ethclient.Client) (*common.Address, error)
 	contractAddr       *common.Address
-	url                string
+	rpcURL                string
+	blockbookURL           string
 	httpClient         *http.Client
 	subMtx             sync.Mutex
 	started            uint32
@@ -49,9 +53,10 @@ type EthClient struct {
 }
 
 // NewEthClient returns a new eth client
-func NewEthClient(url string, createRegistry func(client *ethclient.Client) (*common.Address, error)) (*EthClient, error) {
+func NewEthClient(rpcURL, blockboolURL string, createRegistry func(client *ethclient.Client) (*common.Address, error)) (*EthClient, error) {
 	return &EthClient{
-		url:                url,
+		rpcURL:                rpcURL,
+		blockbookURL:           blockboolURL,
 		createRegistryFunc: createRegistry,
 		httpClient:         proxyclient.NewHttpClient(),
 		shutdown:           make(chan struct{}),
@@ -62,19 +67,57 @@ func NewEthClient(url string, createRegistry func(client *ethclient.Client) (*co
 }
 
 func (c *EthClient) GetBlockchainInfo() (iwallet.BlockInfo, error) {
-	if atomic.LoadUint32(&c.started) == 0 {
-		return iwallet.BlockInfo{}, errors.New("rpc client not connected")
+	type Info struct {
+		Blockbook struct {
+			LastBlockTime time.Time `json:"lastBlockTime"`
+		} `json:"blockbook"`
+		Backend struct {
+			BestHeight int    `json:"blocks"`
+			BestHash   string `json:"bestblockhash"`
+		} `json:"backend"`
 	}
-	header, err := c.RPC.HeaderByNumber(context.Background(), nil)
+
+	resp, err := c.httpClient.Get(c.blockbookURL)
 	if err != nil {
 		return iwallet.BlockInfo{}, err
 	}
 
+	if resp.StatusCode != http.StatusOK {
+		return iwallet.BlockInfo{}, errors.New("incorrect status code")
+	}
+
+	decoder := json.NewDecoder(resp.Body)
+
+	var info Info
+	if err := decoder.Decode(&info); err != nil {
+		return iwallet.BlockInfo{}, err
+	}
+
+	type BlockHash struct {
+		Hash string `json:"blockHash"`
+	}
+
+	resp, err = c.httpClient.Get(c.blockbookURL + "/block-index/" + strconv.Itoa(info.Backend.BestHeight-1))
+	if err != nil {
+		return iwallet.BlockInfo{}, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return iwallet.BlockInfo{}, errors.New("incorrect status code")
+	}
+
+	decoder = json.NewDecoder(resp.Body)
+
+	var prevHash BlockHash
+	if err := decoder.Decode(&prevHash); err != nil {
+		return iwallet.BlockInfo{}, err
+	}
+
 	return iwallet.BlockInfo{
-		BlockID:   iwallet.BlockID(header.Hash().String()),
-		Height:    uint64(header.Number.Int64()),
-		BlockTime: time.Unix(int64(header.Time), 0),
-		PrevBlock: iwallet.BlockID(header.ParentHash.String()),
+		Height:    uint64(info.Backend.BestHeight),
+		BlockID:   iwallet.BlockID(info.Backend.BestHash),
+		BlockTime: info.Blockbook.LastBlockTime,
+		PrevBlock: iwallet.BlockID(prevHash.Hash),
 	}, nil
 }
 
@@ -87,10 +130,10 @@ func (c *EthClient) GetAddressTransactions(addr iwallet.Address, fromHeight uint
 	}
 
 	network := etherscan.Rinkby
-	if strings.Contains(c.url, "mainnet") {
+	if strings.Contains(c.rpcURL, "mainnet") {
 		network = etherscan.Mainnet
 	}
-	resp, err := c.httpClient.Get(fmt.Sprintf("https://%s.etherscan.io/api?module=account&action=txlist&address=%s&sort=desc&startblock=%d", network, addr.String(), fromHeight))
+	resp, err := c.httpClient.Get(fmt.Sprintf("https://%s.etherscan.io/api?apikey=KA15D8FCHGBFZ4CQ25Y4NZM24417AXWF7M&module=account&action=txlist&address=%s&sort=desc&startblock=%d", network, addr.String(), fromHeight))
 	if err != nil {
 		return nil, err
 	}
@@ -119,13 +162,13 @@ func (c *EthClient) GetTransaction(id iwallet.TransactionID) (iwallet.Transactio
 		return iwallet.Transaction{}, errors.New("rpc client not connected")
 	}
 	type transactionsResult struct {
-		Result jsonTransaction `json:"result"`
+		Result *jsonTransaction `json:"result"`
 	}
 	network := etherscan.Rinkby
-	if strings.Contains(c.url, "mainnet") {
+	if strings.Contains(c.rpcURL, "mainnet") {
 		network = etherscan.Mainnet
 	}
-	resp, err := c.httpClient.Get(fmt.Sprintf("https://%s.etherscan.io/api?module=proxy&action=eth_getTransactionByHash&txhash=%s", network, id.String()))
+	resp, err := c.httpClient.Get(fmt.Sprintf("https://%s.etherscan.io/api?apikey=KA15D8FCHGBFZ4CQ25Y4NZM24417AXWF7M&module=proxy&action=eth_getTransactionByHash&txhash=%s", network, id.String()))
 	if err != nil {
 		return iwallet.Transaction{}, err
 	}
@@ -136,8 +179,11 @@ func (c *EthClient) GetTransaction(id iwallet.TransactionID) (iwallet.Transactio
 	if err := decoder.Decode(&result); err != nil {
 		return iwallet.Transaction{}, err
 	}
+	if result.Result == nil {
+		return iwallet.Transaction{}, errors.New("tx not found")
+	}
 
-	return c.buildTransactionFromJSON(&result.Result)
+	return c.buildTransactionFromJSON(result.Result)
 }
 
 func (c *EthClient) IsBlockInMainChain(block iwallet.BlockInfo) (bool, error) {
@@ -153,48 +199,62 @@ func (c *EthClient) IsBlockInMainChain(block iwallet.BlockInfo) (bool, error) {
 
 func (c *EthClient) SubscribeTransactions(addrs []iwallet.Address) (*base.TransactionSubscription, error) {
 	if atomic.LoadUint32(&c.started) == 0 {
-		return nil, errors.New("websocket client not connected")
+		return nil, errors.New("blockbook client not connected")
 	}
 
 	c.subMtx.Lock()
 	defer c.subMtx.Unlock()
 
 	sub := &base.TransactionSubscription{
-		Out: make(chan iwallet.Transaction),
+		Out:         make(chan iwallet.Transaction),
+		Subscribe:   make(chan []iwallet.Address),
+		Unsubscribe: make(chan []iwallet.Address),
+	}
+
+	addrStrs := make([]string, 0, len(addrs))
+	for _, addr := range addrs {
+		addrStrs = append(addrStrs, addr.String())
+	}
+
+	args := []interface{}{
+		"bitcoind/addresstxid",
+		addrStrs,
+	}
+
+	if err := c.socket.Emit("subscribe", args); err != nil {
+		return nil, err
 	}
 
 	id := rand.Int31()
 	c.txSubs[id] = sub
 
-	cAddrs := make([]common.Address, 0, len(addrs))
-	for _, addr := range addrs {
-		cAddrs = append(cAddrs, common.HexToAddress(addr.String()))
-	}
-
-	ch := make(chan types.Log)
-	ethSub, err := c.WS.SubscribeFilterLogs(context.Background(), ethereum.FilterQuery{Addresses: cAddrs}, ch)
-	if err != nil {
-		return nil, err
-	}
+	subClose := make(chan struct{})
 
 	sub.Close = func() {
+		close(sub.Out)
+		close(subClose)
 		c.subMtx.Lock()
 		delete(c.txSubs, id)
 		c.subMtx.Unlock()
-		ethSub.Unsubscribe()
-		close(sub.Out)
 	}
+
 	go func() {
 		for {
 			select {
-			case log := <-ch:
-				tx, err := c.GetTransaction(iwallet.TransactionID(log.TxHash.String()))
-				if err != nil {
-					continue
-				}
-				sub.Out <- tx
+			case <-subClose:
+				return
 			case <-c.shutdown:
 				return
+			case addrs := <-sub.Subscribe:
+				addrStrs := make([]string, 0, len(addrs))
+				for _, addr := range addrs {
+					addrStrs = append(addrStrs, addr.String())
+				}
+				args := []interface{}{
+					"bitcoind/addresstxid",
+					addrStrs,
+				}
+				c.socket.Emit("subscribe", args)
 			}
 		}
 	}()
@@ -204,7 +264,7 @@ func (c *EthClient) SubscribeTransactions(addrs []iwallet.Address) (*base.Transa
 
 func (c *EthClient) SubscribeBlocks() (*base.BlockSubscription, error) {
 	if atomic.LoadUint32(&c.started) == 0 {
-		return nil, errors.New("websocket client not connected")
+		return nil, errors.New("blockbook client not connected")
 	}
 
 	c.subMtx.Lock()
@@ -217,37 +277,15 @@ func (c *EthClient) SubscribeBlocks() (*base.BlockSubscription, error) {
 	id := rand.Int31()
 	c.blockSubs[id] = sub
 
-	ch := make(chan *types.Header)
-	ethSub, err := c.WS.SubscribeNewHead(context.Background(), ch)
-	if err != nil {
-		return nil, err
-	}
-
 	sub.Close = func() {
 		c.subMtx.Lock()
 		delete(c.blockSubs, id)
 		c.subMtx.Unlock()
-		ethSub.Unsubscribe()
 		close(sub.Out)
 	}
-	go func() {
-		for {
-			select {
-			case header := <-ch:
-				if header == nil {
-					return
-				}
-				sub.Out <- iwallet.BlockInfo{
-					BlockID:   iwallet.BlockID(header.Hash().String()),
-					PrevBlock: iwallet.BlockID(header.ParentHash.String()),
-					BlockTime: time.Unix(int64(header.Time), 0),
-					Height:    header.Number.Uint64(),
-				}
-			case <-c.shutdown:
-				return
-			}
-		}
-	}()
+	if err := c.socket.Emit("subscribe", protocol.ToArgArray("bitcoind/hashblock")); err != nil {
+		return nil, err
+	}
 
 	return sub, nil
 }
@@ -286,48 +324,76 @@ func (c *EthClient) Broadcast(serializedTx []byte) error {
 }
 
 func (c *EthClient) Open() error {
-	conn, err := rpc.DialHTTPWithClient(c.url, proxyclient.NewHttpClient())
+	conn, err := rpc.DialHTTPWithClient(c.rpcURL, proxyclient.NewHttpClient())
 	if err != nil {
 		return err
-	}
-	var ws *rpc.Client
-
-	proxyDialer, err := proxyclient.DialFunc()
-	if err == nil {
-		dialer := websocket.DefaultDialer
-		proxyDialerCtx, err := proxyclient.DialContextFunc()
-		if err != nil {
-			return err
-		}
-
-		dialer.NetDial = proxyDialer
-		dialer.NetDialContext = proxyDialerCtx
-
-		ws, err = rpc.DialWebsocketWithDialer(context.Background(), strings.Replace(c.url, "https", "wss", 1)+"/ws", "", *dialer)
-		if err != nil {
-			conn.Close()
-			return err
-		}
-	} else {
-		ws, err = rpc.DialWebsocket(context.Background(), strings.Replace(c.url, "https", "wss", 1)+"/ws", "")
-		if err != nil {
-			conn.Close()
-			return err
-		}
 	}
 
 	rpc := ethclient.NewClient(conn)
 
 	contractAddr, err := c.createRegistryFunc(rpc)
 	if err != nil {
-		ws.Close()
 		conn.Close()
+		return err
+	}
+
+	var socketUrl string
+	if strings.HasPrefix(c.blockbookURL, "https") {
+		socketUrl = strings.Replace(strings.TrimSuffix(c.blockbookURL, "/api"), "https://", "wss://", 1)
+	} else if strings.HasPrefix(c.blockbookURL, "http") {
+		socketUrl = strings.Replace(strings.TrimSuffix(c.blockbookURL, "/api"), "http://", "ws://", 1)
+	}
+	socket, err := gosocketio.Dial(socketUrl+"/socket.io/", blockbook.GetDefaultWebsocketTransport())
+	if err != nil {
+		return err
+	}
+	err = socket.On("bitcoind/addresstxid", func(h *gosocketio.Channel, arg interface{}) {
+		m, ok := arg.(map[string]interface{})
+		if !ok {
+			return
+		}
+		v, ok := m["txid"]
+		if !ok {
+			return
+		}
+
+		txid, ok := v.(string)
+		if !ok {
+			return
+		}
+
+		tx, err := c.GetTransaction(iwallet.TransactionID(txid))
+		if err == nil {
+			c.subMtx.Lock()
+			for _, sub := range c.txSubs {
+				sub.Out <- tx
+			}
+			c.subMtx.Unlock()
+		}
+	})
+	if err != nil {
+		socket.Close()
+		return err
+	}
+	err = socket.On("bitcoind/hashblock", func(h *gosocketio.Channel, arg interface{}) {
+		info, err := c.GetBlockchainInfo()
+		if err != nil {
+			return
+		}
+		c.subMtx.Lock()
+		for _, sub := range c.blockSubs {
+			sub.Out <- info
+		}
+		c.subMtx.Unlock()
+	})
+	if err != nil {
+		socket.Close()
 		return err
 	}
 
 	c.contractAddr = contractAddr
 	c.RPC = rpc
-	c.WS = ethclient.NewClient(ws)
+	c.socket = socket
 
 	atomic.AddUint32(&c.started, 1)
 	return nil
@@ -338,8 +404,8 @@ func (c *EthClient) Close() error {
 	if c.RPC != nil {
 		c.RPC.Close()
 	}
-	if c.WS != nil {
-		c.WS.Close()
+	if c.socket != nil {
+		c.socket.Close()
 	}
 	return nil
 }
@@ -447,7 +513,11 @@ func (c *EthClient) buildTransactionFromJSON(tx *jsonTransaction) (iwallet.Trans
 	if ok {
 		val = iwallet.NewAmount(tx.Value)
 	} else {
-		valBytes, err := hex.DecodeString(strings.TrimPrefix(tx.Value, "0x"))
+		tx.Value = strings.TrimPrefix(tx.Value, "0x")
+		if len(tx.Value) % 2 != 0 {
+			tx.Value = "0" + tx.Value
+		}
+		valBytes, err := hex.DecodeString(tx.Value)
 		if err != nil {
 			return iwallet.Transaction{}, err
 		}

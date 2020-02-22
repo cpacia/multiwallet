@@ -90,7 +90,7 @@ func NewEthereumWallet(cfg *base.WalletConfig) (*EthereumWallet, error) {
 		return &v.Implementation, nil
 	}
 
-	client, err := ethclient.NewEthClient(cfg.ClientUrl, createRegistry)
+	client, err := ethclient.NewEthClient(cfg.ClientUrl, "https://eth1.trezor.io/api", createRegistry)
 	if err != nil {
 		return nil, err
 	}

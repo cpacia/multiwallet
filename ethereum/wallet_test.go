@@ -22,7 +22,7 @@ func TestEthereumWallet_CloseWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 	w, err := NewEthereumWallet(&base.WalletConfig{
-		ClientUrl: "https://mainnet.infura.io",
+		ClientUrl: "https://mainnet.infura.io/v3/91c82af0169c4115940c76d331410749",
 		DB:        db,
 		Testnet:   false,
 		Logger:    logging.MustGetLogger("eth"),
@@ -50,7 +50,7 @@ func TestEthereumWallet_CloseWallet(t *testing.T) {
 
 	time.Sleep(time.Second * 5)
 
-	tx, err := w.client.GetTransaction(iwallet.TransactionID("0x5a6f5c52df5790bd114704e58afb7ba071e90d9e4cd0b6accd5304a64137cfb5"))
+	tx, err := w.client.GetTransaction(iwallet.TransactionID("0x0feaa08977c131c491a2bc57422c557f07994713c35804c0e54615ff5fdacf3a"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestEthereumWallet_CloseWallet(t *testing.T) {
 	}
 	fmt.Println(string(out))
 
-	sub, err := w.client.SubscribeTransactions([]iwallet.Address{iwallet.NewAddress("0x876EabF441B2EE5B5b0554Fd502a8E0600950cFa", iwallet.CtEthereum)})
+	sub, err := w.client.SubscribeTransactions([]iwallet.Address{iwallet.NewAddress("0x0Fc809Dd1475cd6056B6D36A832CB53bCb2E8786", iwallet.CtEthereum)})
 	if err != nil {
 		t.Fatal(err)
 	}
