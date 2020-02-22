@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	gosocketio "github.com/OpenBazaar/golang-socketio"
 	"github.com/OpenBazaar/golang-socketio/protocol"
 	"github.com/cenkalti/backoff"
@@ -21,7 +20,6 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/nanmu42/etherscan-api"
 	"io/ioutil"
 	"math/big"
 	"math/rand"
@@ -34,7 +32,10 @@ import (
 )
 
 // EscrowABI is the input ABI used to generate the binding from.
-const EscrowABI = "[{\"constant\":false,\"inputs\":[{\"name\":\"buyer\",\"type\":\"address\"},{\"name\":\"seller\",\"type\":\"address\"},{\"name\":\"moderator\",\"type\":\"address\"},{\"name\":\"threshold\",\"type\":\"uint8\"},{\"name\":\"timeoutHours\",\"type\":\"uint32\"},{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"uniqueId\",\"type\":\"bytes20\"}],\"name\":\"addTransaction\",\"outputs\":[],\"payable\":true,\"stateMutability\":\"payable\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"scriptHash\",\"type\":\"bytes32\"}],\"name\":\"addFundsToTransaction\",\"outputs\":[],\"payable\":true,\"stateMutability\":\"payable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"uniqueId\",\"type\":\"bytes20\"},{\"name\":\"threshold\",\"type\":\"uint8\"},{\"name\":\"timeoutHours\",\"type\":\"uint32\"},{\"name\":\"buyer\",\"type\":\"address\"},{\"name\":\"seller\",\"type\":\"address\"},{\"name\":\"moderator\",\"type\":\"address\"},{\"name\":\"tokenAddress\",\"type\":\"address\"}],\"name\":\"calculateRedeemScriptHash\",\"outputs\":[{\"name\":\"hash\",\"type\":\"bytes32\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"buyer\",\"type\":\"address\"},{\"name\":\"seller\",\"type\":\"address\"},{\"name\":\"moderator\",\"type\":\"address\"},{\"name\":\"threshold\",\"type\":\"uint8\"},{\"name\":\"timeoutHours\",\"type\":\"uint32\"},{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"value\",\"type\":\"uint256\"},{\"name\":\"uniqueId\",\"type\":\"bytes20\"},{\"name\":\"tokenAddress\",\"type\":\"address\"}],\"name\":\"addTokenTransaction\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"\",\"type\":\"bytes32\"}],\"name\":\"transactions\",\"outputs\":[{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"value\",\"type\":\"uint256\"},{\"name\":\"lastModified\",\"type\":\"uint256\"},{\"name\":\"status\",\"type\":\"uint8\"},{\"name\":\"transactionType\",\"type\":\"uint8\"},{\"name\":\"threshold\",\"type\":\"uint8\"},{\"name\":\"timeoutHours\",\"type\":\"uint32\"},{\"name\":\"buyer\",\"type\":\"address\"},{\"name\":\"seller\",\"type\":\"address\"},{\"name\":\"tokenAddress\",\"type\":\"address\"},{\"name\":\"moderator\",\"type\":\"address\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"beneficiary\",\"type\":\"address\"}],\"name\":\"checkBeneficiary\",\"outputs\":[{\"name\":\"check\",\"type\":\"bool\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"addTokensToTransaction\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[],\"name\":\"transactionCount\",\"outputs\":[{\"name\":\"\",\"type\":\"uint256\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"partyAddress\",\"type\":\"address\"}],\"name\":\"getAllTransactionsForParty\",\"outputs\":[{\"name\":\"scriptHashes\",\"type\":\"bytes32[]\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"sigV\",\"type\":\"uint8[]\"},{\"name\":\"sigR\",\"type\":\"bytes32[]\"},{\"name\":\"sigS\",\"type\":\"bytes32[]\"},{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"destinations\",\"type\":\"address[]\"},{\"name\":\"amounts\",\"type\":\"uint256[]\"}],\"name\":\"execute\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"party\",\"type\":\"address\"}],\"name\":\"checkVote\",\"outputs\":[{\"name\":\"vote\",\"type\":\"bool\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"\",\"type\":\"address\"},{\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"partyVsTransaction\",\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"indexed\":false,\"name\":\"destinations\",\"type\":\"address[]\"},{\"indexed\":false,\"name\":\"amounts\",\"type\":\"uint256[]\"}],\"name\":\"Executed\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"indexed\":true,\"name\":\"from\",\"type\":\"address\"},{\"indexed\":false,\"name\":\"valueAdded\",\"type\":\"uint256\"}],\"name\":\"FundAdded\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"indexed\":true,\"name\":\"from\",\"type\":\"address\"},{\"indexed\":false,\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"Funded\",\"type\":\"event\"}]=======openzeppelin-solidity/contracts/math/SafeMath.sol:SafeMath=======[]=======token/ITokenContract.sol:ITokenContract=======[{\"constant\":false,\"inputs\":[{\"name\":\"_from\",\"type\":\"address\"},{\"name\":\"_to\",\"type\":\"address\"},{\"name\":\"_amount\",\"type\":\"uint256\"}],\"name\":\"transferFrom\",\"outputs\":[{\"name\":\"success\",\"type\":\"bool\"}],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"_owner\",\"type\":\"address\"}],\"name\":\"balanceOf\",\"outputs\":[{\"name\":\"balance\",\"type\":\"uint256\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"_to\",\"type\":\"address\"},{\"name\":\"_amount\",\"type\":\"uint256\"}],\"name\":\"transfer\",\"outputs\":[{\"name\":\"success\",\"type\":\"bool\"}],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]"
+const (
+	EscrowABI = "[{\"constant\":false,\"inputs\":[{\"name\":\"buyer\",\"type\":\"address\"},{\"name\":\"seller\",\"type\":\"address\"},{\"name\":\"moderator\",\"type\":\"address\"},{\"name\":\"threshold\",\"type\":\"uint8\"},{\"name\":\"timeoutHours\",\"type\":\"uint32\"},{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"uniqueId\",\"type\":\"bytes20\"}],\"name\":\"addTransaction\",\"outputs\":[],\"payable\":true,\"stateMutability\":\"payable\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"scriptHash\",\"type\":\"bytes32\"}],\"name\":\"addFundsToTransaction\",\"outputs\":[],\"payable\":true,\"stateMutability\":\"payable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"uniqueId\",\"type\":\"bytes20\"},{\"name\":\"threshold\",\"type\":\"uint8\"},{\"name\":\"timeoutHours\",\"type\":\"uint32\"},{\"name\":\"buyer\",\"type\":\"address\"},{\"name\":\"seller\",\"type\":\"address\"},{\"name\":\"moderator\",\"type\":\"address\"},{\"name\":\"tokenAddress\",\"type\":\"address\"}],\"name\":\"calculateRedeemScriptHash\",\"outputs\":[{\"name\":\"hash\",\"type\":\"bytes32\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"buyer\",\"type\":\"address\"},{\"name\":\"seller\",\"type\":\"address\"},{\"name\":\"moderator\",\"type\":\"address\"},{\"name\":\"threshold\",\"type\":\"uint8\"},{\"name\":\"timeoutHours\",\"type\":\"uint32\"},{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"value\",\"type\":\"uint256\"},{\"name\":\"uniqueId\",\"type\":\"bytes20\"},{\"name\":\"tokenAddress\",\"type\":\"address\"}],\"name\":\"addTokenTransaction\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"\",\"type\":\"bytes32\"}],\"name\":\"transactions\",\"outputs\":[{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"value\",\"type\":\"uint256\"},{\"name\":\"lastModified\",\"type\":\"uint256\"},{\"name\":\"status\",\"type\":\"uint8\"},{\"name\":\"transactionType\",\"type\":\"uint8\"},{\"name\":\"threshold\",\"type\":\"uint8\"},{\"name\":\"timeoutHours\",\"type\":\"uint32\"},{\"name\":\"buyer\",\"type\":\"address\"},{\"name\":\"seller\",\"type\":\"address\"},{\"name\":\"tokenAddress\",\"type\":\"address\"},{\"name\":\"moderator\",\"type\":\"address\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"beneficiary\",\"type\":\"address\"}],\"name\":\"checkBeneficiary\",\"outputs\":[{\"name\":\"check\",\"type\":\"bool\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"addTokensToTransaction\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[],\"name\":\"transactionCount\",\"outputs\":[{\"name\":\"\",\"type\":\"uint256\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"partyAddress\",\"type\":\"address\"}],\"name\":\"getAllTransactionsForParty\",\"outputs\":[{\"name\":\"scriptHashes\",\"type\":\"bytes32[]\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"sigV\",\"type\":\"uint8[]\"},{\"name\":\"sigR\",\"type\":\"bytes32[]\"},{\"name\":\"sigS\",\"type\":\"bytes32[]\"},{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"destinations\",\"type\":\"address[]\"},{\"name\":\"amounts\",\"type\":\"uint256[]\"}],\"name\":\"execute\",\"outputs\":[],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"name\":\"party\",\"type\":\"address\"}],\"name\":\"checkVote\",\"outputs\":[{\"name\":\"vote\",\"type\":\"bool\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"\",\"type\":\"address\"},{\"name\":\"\",\"type\":\"uint256\"}],\"name\":\"partyVsTransaction\",\"outputs\":[{\"name\":\"\",\"type\":\"bytes32\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"indexed\":false,\"name\":\"destinations\",\"type\":\"address[]\"},{\"indexed\":false,\"name\":\"amounts\",\"type\":\"uint256[]\"}],\"name\":\"Executed\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"indexed\":true,\"name\":\"from\",\"type\":\"address\"},{\"indexed\":false,\"name\":\"valueAdded\",\"type\":\"uint256\"}],\"name\":\"FundAdded\",\"type\":\"event\"},{\"anonymous\":false,\"inputs\":[{\"indexed\":false,\"name\":\"scriptHash\",\"type\":\"bytes32\"},{\"indexed\":true,\"name\":\"from\",\"type\":\"address\"},{\"indexed\":false,\"name\":\"value\",\"type\":\"uint256\"}],\"name\":\"Funded\",\"type\":\"event\"}]=======openzeppelin-solidity/contracts/math/SafeMath.sol:SafeMath=======[]=======token/ITokenContract.sol:ITokenContract=======[{\"constant\":false,\"inputs\":[{\"name\":\"_from\",\"type\":\"address\"},{\"name\":\"_to\",\"type\":\"address\"},{\"name\":\"_amount\",\"type\":\"uint256\"}],\"name\":\"transferFrom\",\"outputs\":[{\"name\":\"success\",\"type\":\"bool\"}],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"constant\":true,\"inputs\":[{\"name\":\"_owner\",\"type\":\"address\"}],\"name\":\"balanceOf\",\"outputs\":[{\"name\":\"balance\",\"type\":\"uint256\"}],\"payable\":false,\"stateMutability\":\"view\",\"type\":\"function\"},{\"constant\":false,\"inputs\":[{\"name\":\"_to\",\"type\":\"address\"},{\"name\":\"_amount\",\"type\":\"uint256\"}],\"name\":\"transfer\",\"outputs\":[{\"name\":\"success\",\"type\":\"bool\"}],\"payable\":false,\"stateMutability\":\"nonpayable\",\"type\":\"function\"}]"
+	RequestTimeout = time.Second * 30
+)
 
 // EthClient represents the eth client
 type EthClient struct {
@@ -64,6 +65,15 @@ func NewEthClient(rpcURL, blockboolURL string, createRegistry func(client *ethcl
 		txSubs:             make(map[int32]*base.TransactionSubscription),
 		blockSubs:          make(map[int32]*base.BlockSubscription),
 	}, nil
+}
+
+type socketioReq struct {
+	Method string        `json:"method"`
+	Params []interface{} `json:"params"`
+}
+
+type resultAddressTxids struct {
+	Result []string `json:"result"`
 }
 
 func (c *EthClient) GetBlockchainInfo() (iwallet.BlockInfo, error) {
@@ -123,54 +133,70 @@ func (c *EthClient) GetBlockchainInfo() (iwallet.BlockInfo, error) {
 
 func (c *EthClient) GetAddressTransactions(addr iwallet.Address, fromHeight uint64) ([]iwallet.Transaction, error) {
 	if atomic.LoadUint32(&c.started) == 0 {
-		return nil, errors.New("rpc client not connected")
+		return nil, errors.New("blockbook client not connected")
 	}
-	type transactionsResult struct {
-		Result []jsonTransaction `json:"result"`
-	}
-
-	network := etherscan.Rinkby
-	if strings.Contains(c.rpcURL, "mainnet") {
-		network = etherscan.Mainnet
-	}
-	resp, err := c.httpClient.Get(fmt.Sprintf("https://%s.etherscan.io/api?apikey=KA15D8FCHGBFZ4CQ25Y4NZM24417AXWF7M&module=account&action=txlist&address=%s&sort=desc&startblock=%d", network, addr.String(), fromHeight))
+	resp, err := c.socket.Ack("message", socketioReq{"getAddressTxids", []interface{}{
+		[]string{addr.String()},
+		map[string]interface{}{
+			"start":        1000000000,
+			"end":          fromHeight,
+			"queryMempool": false,
+		},
+	}}, RequestTimeout)
 	if err != nil {
 		return nil, err
 	}
 
-	decoder := json.NewDecoder(resp.Body)
+	type txOrError struct {
+		tx  iwallet.Transaction
+		err error
+	}
 
-	var result transactionsResult
-	if err := decoder.Decode(&result); err != nil {
+	var ids resultAddressTxids
+	if err := json.Unmarshal([]byte(resp), &ids); err != nil {
 		return nil, err
 	}
 
-	var txs []iwallet.Transaction
-	for _, tx := range result.Result {
-		txn, err := c.buildTransactionFromJSON(&tx)
-		if err != nil {
-			return nil, err
+	var (
+		wg  sync.WaitGroup
+		txs = make([]iwallet.Transaction, 0, len(ids.Result))
+		ch  = make(chan txOrError, len(ids.Result))
+	)
+	wg.Add(len(ids.Result))
+
+	for _, id := range ids.Result {
+		go func() {
+			tx, err := c.GetTransaction(iwallet.TransactionID(id))
+			ch <- txOrError{tx, err}
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+	close(ch)
+
+	for result := range ch {
+		if result.err != nil {
+			return nil, result.err
 		}
-		txs = append(txs, txn)
+
+		txs = append(txs, result.tx)
 	}
 
 	return txs, nil
 }
 
 func (c *EthClient) GetTransaction(id iwallet.TransactionID) (iwallet.Transaction, error) {
-	if atomic.LoadUint32(&c.started) == 0 {
-		return iwallet.Transaction{}, errors.New("rpc client not connected")
-	}
 	type transactionsResult struct {
-		Result *jsonTransaction `json:"result"`
+		Tx *jsonTransaction `json:"tx"`
 	}
-	network := etherscan.Rinkby
-	if strings.Contains(c.rpcURL, "mainnet") {
-		network = etherscan.Mainnet
-	}
-	resp, err := c.httpClient.Get(fmt.Sprintf("https://%s.etherscan.io/api?apikey=KA15D8FCHGBFZ4CQ25Y4NZM24417AXWF7M&module=proxy&action=eth_getTransactionByHash&txhash=%s", network, id.String()))
+	resp, err := c.httpClient.Get(c.blockbookURL + "/tx-specific/" + id.String())
 	if err != nil {
 		return iwallet.Transaction{}, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return iwallet.Transaction{}, errors.New("incorrect status code")
 	}
 
 	decoder := json.NewDecoder(resp.Body)
@@ -179,11 +205,11 @@ func (c *EthClient) GetTransaction(id iwallet.TransactionID) (iwallet.Transactio
 	if err := decoder.Decode(&result); err != nil {
 		return iwallet.Transaction{}, err
 	}
-	if result.Result == nil {
+	if result.Tx == nil {
 		return iwallet.Transaction{}, errors.New("tx not found")
 	}
 
-	return c.buildTransactionFromJSON(result.Result)
+	return c.buildTransactionFromJSON(result.Tx)
 }
 
 func (c *EthClient) IsBlockInMainChain(block iwallet.BlockInfo) (bool, error) {
@@ -497,7 +523,6 @@ type jsonTransaction struct {
 	From          string `json:"from"`
 	To            string `json:"to"`
 	Value         string `json:"value"`
-	Confirmations string `json:"confirmations"`
 	Input         string `json:"input"`
 }
 
@@ -529,7 +554,11 @@ func (c *EthClient) buildTransactionFromJSON(tx *jsonTransaction) (iwallet.Trans
 	if ok {
 		height = iwallet.NewAmount(tx.BlockNumber)
 	} else {
-		heightBytes, err := hex.DecodeString(strings.TrimPrefix(tx.BlockNumber, "0x"))
+		tx.BlockNumber = strings.TrimPrefix(tx.BlockNumber, "0x")
+		if len(tx.BlockNumber) % 2 != 0 {
+			tx.BlockNumber = "0" + tx.BlockNumber
+		}
+		heightBytes, err := hex.DecodeString(tx.BlockNumber)
 		if err != nil {
 			return iwallet.Transaction{}, err
 		}
