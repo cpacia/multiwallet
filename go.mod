@@ -15,8 +15,8 @@ require (
 	github.com/cpacia/wallet-interface v0.0.0-20191217232838-79018d77e07f
 	github.com/dchest/blake256 v1.1.0 // indirect
 	github.com/ethereum/go-ethereum v1.9.10-0.20200106112538-7a509b47321a
-	github.com/gcash/bchd v0.15.2
-	github.com/gcash/bchutil v0.0.0-20191012211144-98e73ec336ba
+	github.com/gcash/bchd v0.15.3-0.20200229013353-8c1fa57b15e7
+	github.com/gcash/bchutil v0.0.0-20200228172631-5e1930e5d630
 	github.com/gcash/bchwallet v0.8.2
 	github.com/gorilla/websocket v1.4.1
 	github.com/jarcoal/httpmock v1.0.4
@@ -32,7 +32,7 @@ require (
 	github.com/nanmu42/etherscan-api v1.1.0
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
-	golang.org/x/crypto v0.0.0-20190923035154-9ee001bba392
+	golang.org/x/crypto v0.0.0-20200221231518-2aa609cf4a9d
 	google.golang.org/grpc v1.25.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 )

@@ -74,7 +74,7 @@ func init() {
 	MainNetParams.ScriptHashAddrID = []byte{0x1C, 0xBD} // base58 prefix: t3
 
 	TestNetParams = chaincfg.TestNet3Params
-	MainNetParams.Net = TestnetMagic
+	TestNetParams.Net = TestnetMagic
 
 	// Address encoding magics
 	TestNetParams.AddressMagicLen = 2
