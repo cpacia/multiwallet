@@ -2,7 +2,6 @@ package blockbook
 
 import (
 	"encoding/hex"
-	"fmt"
 	gosocketio "github.com/OpenBazaar/golang-socketio"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/jarcoal/httpmock"
@@ -367,43 +366,4 @@ func TestBlockbookClient_OpenClose(t *testing.T) {
 
 	txSub.Close()
 	blockSub.Close()
-}
-
-func TestNewBlockbookClient(t *testing.T) {
-	obClient, err := NewBlockbookClient("https://ltc.dev.ob1.io/api", iwallet.CtZCash)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	trezorClient, err := NewBlockbookClient("https://ltc1.trezor.io/api", iwallet.CtZCash)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := obClient.Open(); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := trezorClient.Open(); err != nil {
-		t.Fatal(err)
-	}
-
-	obSub, err := obClient.SubscribeBlocks()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	trezorSub, err := trezorClient.SubscribeBlocks()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	for {
-		select {
-		case block := <- obSub.Out:
-			fmt.Printf("Received OB block at height %d\n", block.Height)
-		case block := <- trezorSub.Out:
-			fmt.Printf("Received Trezor block at height %d\n", block.Height)
-		}
-	}
 }

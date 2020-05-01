@@ -21,9 +21,10 @@ require (
 	github.com/gorilla/websocket v1.4.1
 	github.com/jarcoal/httpmock v1.0.4
 	github.com/jinzhu/gorm v1.9.11
-	github.com/ltcsuite/ltcd v0.0.0-20191214120725-004941532b74
+	github.com/ltcsuite/ltcd v0.20.1-beta
 	github.com/ltcsuite/ltcutil v0.0.0-20191227053721-6bec450ea6ad
-	github.com/ltcsuite/ltcwallet v0.0.0-20190105125346-3fa612e326e5
+	github.com/ltcsuite/ltcwallet/wallet/txauthor v1.0.0
+	github.com/ltcsuite/ltcwallet/wallet/txrules v1.0.0
 	github.com/martinboehm/btcd v0.0.0-20190104121910-8e7c0427fee5
 	github.com/martinboehm/btcutil v0.0.0-20191023112652-a3d2b8457b77
 	github.com/mattn/go-colorable v0.1.2 // indirect
@@ -38,6 +39,5 @@ require (
 
 replace (
 	github.com/Roasbeef/ltcutil/bech32 => github.com/ltcsuite/ltcutil v0.0.0-20190507133322-23cdfa9fcc3d
-	github.com/coreos/bbolt => go.etcd.io/bbolt v1.3.4-0.20200121170514-da442c51f155
 	github.com/lightninglabs/neutrino => github.com/lightninglabs/neutrino v0.11.0
 )
