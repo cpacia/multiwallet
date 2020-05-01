@@ -29,7 +29,6 @@ require (
 	github.com/mattn/go-colorable v0.1.2 // indirect
 	github.com/mattn/go-isatty v0.0.9 // indirect
 	github.com/minio/blake2b-simd v0.0.0-20160723061019-3f5f724cb5b1
-	github.com/nanmu42/etherscan-api v1.1.0
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	golang.org/x/crypto v0.0.0-20200221231518-2aa609cf4a9d
@@ -37,6 +36,8 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 )
 
-replace github.com/lightninglabs/neutrino => github.com/lightninglabs/neutrino v0.11.0
-
-replace github.com/Roasbeef/ltcutil/bech32 => github.com/ltcsuite/ltcutil v0.0.0-20190507133322-23cdfa9fcc3d
+replace (
+	github.com/Roasbeef/ltcutil/bech32 => github.com/ltcsuite/ltcutil v0.0.0-20190507133322-23cdfa9fcc3d
+	github.com/coreos/bbolt => go.etcd.io/bbolt v1.3.4-0.20200121170514-da442c51f155
+	github.com/lightninglabs/neutrino => github.com/lightninglabs/neutrino v0.11.0
+)
