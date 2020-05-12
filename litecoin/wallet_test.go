@@ -18,6 +18,7 @@ import (
 	"github.com/ltcsuite/ltcd/wire"
 	"github.com/ltcsuite/ltcutil"
 	"github.com/op/go-logging"
+	"github.com/whyrusleeping/go-logging"
 	"testing"
 	"time"
 )

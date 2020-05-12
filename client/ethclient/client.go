@@ -54,10 +54,10 @@ type EthClient struct {
 }
 
 // NewEthClient returns a new eth client
-func NewEthClient(rpcURL, blockboolURL string, createRegistry func(client *ethclient.Client) (*common.Address, error)) (*EthClient, error) {
+func NewEthClient(rpcURL, blockbookURL string, createRegistry func(client *ethclient.Client) (*common.Address, error)) (*EthClient, error) {
 	return &EthClient{
 		rpcURL:             rpcURL,
-		blockbookURL:       blockboolURL,
+		blockbookURL:       blockbookURL,
 		createRegistryFunc: createRegistry,
 		httpClient:         proxyclient.NewHttpClient(),
 		shutdown:           make(chan struct{}),

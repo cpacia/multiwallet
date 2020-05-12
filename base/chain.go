@@ -33,7 +33,6 @@ type ChainManager struct {
 	keychain         *Keychain
 	db               database.Database
 	logger           *logging.Logger
-	backoff          *expbackoff.ExponentialBackOff
 	unconfirmedTxs   map[iwallet.TransactionID]iwallet.Transaction
 	watchOnly        []iwallet.Address
 	subscriptionChan chan iwallet.Transaction
@@ -44,10 +43,6 @@ type ChainManager struct {
 
 // NewChainManager builds a new ChainManager from the ChainConfig.
 func NewChainManager(config *ChainConfig) *ChainManager {
-	backoff := expbackoff.NewExponentialBackOff()
-	backoff.MaxElapsedTime = 0
-	backoff.InitialInterval = time.Second
-
 	return &ChainManager{
 		client:           config.Client,
 		keychain:         config.Keychain,
@@ -58,10 +53,8 @@ func NewChainManager(config *ChainConfig) *ChainManager {
 		unconfirmedTxs:   make(map[iwallet.TransactionID]iwallet.Transaction),
 		subscriptionChan: config.TxSubscriptionChan,
 		eventBus:         config.EventBus,
-
-		backoff: backoff,
-		msgChan: make(chan interface{}),
-		done:    make(chan struct{}),
+		msgChan:          make(chan interface{}),
+		done:             make(chan struct{}),
 	}
 }
 
@@ -134,14 +127,18 @@ func (cm *ChainManager) Start() error {
 			transactionSub *TransactionSubscription
 			blocksSub      *BlockSubscription
 			fromHeight     uint64
+			backoff        = expbackoff.NewExponentialBackOff()
 		)
+
+		backoff.MaxElapsedTime = 0
+		backoff.InitialInterval = time.Second
 		for {
 			// Here we initialize the chain, including making a couple API calls
 			// to set the best height and hash. If any of that fails, we will
 			// recursively call this function again with an exponential backoff.
 			transactionSub, blocksSub, fromHeight, err = cm.initializeChain(currentBestBlock, unconfirmed, addrs, watchAddresses)
 			if err != nil {
-				backoffDuration := cm.backoff.NextBackOff()
+				backoffDuration := backoff.NextBackOff()
 				cm.logger.Errorf("[%s] Error initializing chain: %s. Retrying in %s", cm.coinType, err, backoffDuration)
 				select {
 				case <-time.After(backoffDuration):
@@ -152,7 +149,6 @@ func (cm *ChainManager) Start() error {
 			}
 			break
 		}
-		cm.backoff.Reset()
 
 		if cm.eventBus != nil {
 			cm.eventBus.Emit(&ChainStartedEvent{})
