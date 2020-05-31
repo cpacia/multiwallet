@@ -39,6 +39,7 @@ var Defaults = func(cfg *Config) error {
 		iwallet.CtBitcoinCash,
 		iwallet.CtLitecoin,
 		iwallet.CtZCash,
+		iwallet.CtEthereum,
 	}
 	cfg.WalletAPIs = map[iwallet.CoinType]APIUrls{
 		iwallet.CtBitcoinCash: {
@@ -58,8 +59,8 @@ var Defaults = func(cfg *Config) error {
 			Testnet: "https://tzec.blockbook.api.openbazaar.org/api",
 		},
 		iwallet.CtEthereum: {
-			Mainnet: "https://mainnet.infura.io/"+infuraAPIKey,
-			Testnet: "https://rinkeby.infura.io/"+infuraAPIKey,
+			Mainnet: "https://mainnet.infura.io/" + infuraAPIKey,
+			Testnet: "https://rinkeby.infura.io/" + infuraAPIKey,
 		},
 	}
 	cfg.LogLevel = logging.INFO

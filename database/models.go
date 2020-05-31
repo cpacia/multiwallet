@@ -44,7 +44,7 @@ type AddressRecord struct {
 	KeyIndex int
 	Change   bool
 	Used     bool
-	Coin     string
+	Coin     string `gorm:"index"`
 }
 
 func (ar *AddressRecord) Address() iwallet.Address {
@@ -53,7 +53,7 @@ func (ar *AddressRecord) Address() iwallet.Address {
 
 type WatchedAddressRecord struct {
 	Addr   string `gorm:"primary_key"`
-	Coin   string
+	Coin   string `gorm:"index"`
 	Script []byte
 }
 
@@ -62,7 +62,7 @@ type TransactionRecord struct {
 	SerlializedTransaction []byte
 	BlockHeight            uint64
 	Timestamp              time.Time
-	Coin                   string
+	Coin                   string `gorm:"index"`
 }
 
 func NewTransactionRecord(tx iwallet.Transaction, coinType iwallet.CoinType) (*TransactionRecord, error) {
@@ -105,12 +105,12 @@ type UtxoRecord struct {
 	Timestamp time.Time
 	Amount    string
 	Address   string
-	Coin      string
+	Coin      string `gorm:"index"`
 }
 
 type UnconfirmedTransaction struct {
 	Txid      string `gorm:"primary_key;unique;not null"`
 	TxBytes   []byte
 	Timestamp time.Time
-	Coin      string
+	Coin      string `gorm:"index"`
 }

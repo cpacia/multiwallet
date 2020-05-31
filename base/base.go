@@ -581,7 +581,7 @@ func (w *WalletBase) GatherCoins(dbtx database.Tx) (map[coinset.Coin]*hd.Extende
 	for _, u := range utxoRecords {
 		var confirmations int64
 		if u.Height > 0 {
-			confirmations = int64(bcInfo.Height - u.Height)
+			confirmations = int64(bcInfo.Height-u.Height) + 1
 		}
 
 		var op wire.OutPoint

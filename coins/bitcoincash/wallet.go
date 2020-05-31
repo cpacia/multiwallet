@@ -768,7 +768,7 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 		allCoins = append(allCoins, coin)
 	}
 	inputSource := func(target bchutil.Amount) (total bchutil.Amount, inputs []*wire.TxIn, inputValues []bchutil.Amount, scripts [][]byte, err error) {
-		coinSelector := coinset.MaxValueAgeCoinSelector{MaxInputs: 10000, MinChangeAmount: btcutil.Amount(0)}
+		coinSelector := coinset.MaxValueAgeCoinSelector{MaxInputs: 10000, MinChangeAmount: btcutil.Amount(txrules.DefaultRelayFeePerKb)}
 		coins, err := coinSelector.CoinSelect(btcutil.Amount(target.ToUnit(bchutil.AmountSatoshi)), allCoins)
 		if err != nil {
 			err = base.ErrInsufficientFunds

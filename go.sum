@@ -91,6 +91,8 @@ github.com/cpacia/proxyclient v0.0.0-20191212063311-f03265f1fade h1:dYWfCioY8ULY
 github.com/cpacia/proxyclient v0.0.0-20191212063311-f03265f1fade/go.mod h1:IF9edCuNRNUB3WGaKcXfep4Azx/GKONbQFVPZJ3OniE=
 github.com/cpacia/wallet-interface v0.0.0-20191217232838-79018d77e07f h1:K2Ra3UWMsPEr9VhttjoQMaMuP4KnjFWycz9WNI5J2p0=
 github.com/cpacia/wallet-interface v0.0.0-20191217232838-79018d77e07f/go.mod h1:ax38EmXdy/eZ9dznU/Swn8qfrsUZtVSnrsSxmcq1xYY=
+github.com/cpacia/wallet-interface v0.0.0-20200531170832-fee73827229b h1:YGF9L9s6LJ6wZ/ZYP8df5TqPn9/UOnHzw3eYH7WpASQ=
+github.com/cpacia/wallet-interface v0.0.0-20200531170832-fee73827229b/go.mod h1:ax38EmXdy/eZ9dznU/Swn8qfrsUZtVSnrsSxmcq1xYY=
 github.com/cpuguy83/go-md2man/v2 v2.0.0-20190314233015-f79a8a8ca69d/go.mod h1:maD7wRr/U5Z6m/iR4s+kqSMx2CaBsrgA7czyZG/E6dU=
 github.com/davecgh/go-spew v0.0.0-20171005155431-ecdeabc65495/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=

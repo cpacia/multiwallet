@@ -628,7 +628,7 @@ func (w *ZCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Addr
 		allCoins = append(allCoins, coin)
 	}
 	inputSource := func(target btc.Amount) (total btc.Amount, inputs []*wire.TxIn, inputValues []btc.Amount, scripts [][]byte, err error) {
-		coinSelector := coinset.MaxValueAgeCoinSelector{MaxInputs: 10000, MinChangeAmount: btc.Amount(0)}
+		coinSelector := coinset.MaxValueAgeCoinSelector{MaxInputs: 10000, MinChangeAmount: btc.Amount(txrules.DefaultRelayFeePerKb)}
 		coins, err := coinSelector.CoinSelect(btc.Amount(target.ToUnit(btc.AmountSatoshi)), allCoins)
 		if err != nil {
 			err = base.ErrInsufficientFunds
