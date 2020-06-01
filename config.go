@@ -2,6 +2,7 @@ package multiwallet
 
 import (
 	"fmt"
+	"github.com/cpacia/multiwallet/base"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/op/go-logging"
 	"path"
@@ -18,12 +19,13 @@ const infuraAPIKey = "v3/91c82af0169c4115940c76d331410749"
 type Option func(*Config) error
 
 type Config struct {
-	Wallets    []iwallet.CoinType
-	WalletAPIs map[iwallet.CoinType]APIUrls
-	UseTestnet bool
-	DataDir    string
-	LogDir     string
-	LogLevel   logging.Level
+	Wallets              []iwallet.CoinType
+	WalletAPIs           map[iwallet.CoinType]APIUrls
+	UseTestnet           bool
+	DataDir              string
+	LogDir               string
+	LogLevel             logging.Level
+	ExchangeRateProvider base.ExchangeRateProvider
 }
 
 type APIUrls struct {
@@ -66,6 +68,7 @@ var Defaults = func(cfg *Config) error {
 	cfg.LogLevel = logging.INFO
 	cfg.DataDir = DefaultHomeDir
 	cfg.LogDir = DefaultLogDir
+	cfg.ExchangeRateProvider = base.NewDefaultExchangeRateProvider("https://ticker.openbazaar.org/api")
 	return nil
 }
 
@@ -129,6 +132,16 @@ func WalletAPIs(apis map[iwallet.CoinType]APIUrls) Option {
 func LogLevel(level logging.Level) Option {
 	return func(cfg *Config) error {
 		cfg.LogLevel = level
+		return nil
+	}
+}
+
+// ExchangeRateProvider sets an ExchangeRateProvider.
+//
+// Defaults to a default provider.
+func ExchangeRateProvider(erp base.ExchangeRateProvider) Option {
+	return func(cfg *Config) error {
+		cfg.ExchangeRateProvider = erp
 		return nil
 	}
 }

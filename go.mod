@@ -6,6 +6,8 @@ require (
 	github.com/Groestlcoin/go-groestl-hash v0.0.0-20181012171753-790653ac190c // indirect
 	github.com/OpenBazaar/golang-socketio v0.0.0-20200109001351-4147b5f0d294
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
+	github.com/aristanetworks/glog v0.0.0-20191112221043-67e8567f59f3 // indirect
+	github.com/aristanetworks/goarista v0.0.0-20170210015632-ea17b1a17847
 	github.com/btcsuite/btcd v0.20.1-beta
 	github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.0.0
@@ -13,7 +15,7 @@ require (
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.0.0
 	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/cpacia/proxyclient v0.0.0-20191212063311-f03265f1fade
-	github.com/cpacia/wallet-interface v0.0.0-20200531170832-fee73827229b
+	github.com/cpacia/wallet-interface v0.0.0-20200601142221-bffc35be13b2
 	github.com/dchest/blake256 v1.1.0 // indirect
 	github.com/ethereum/go-ethereum v1.9.10-0.20200106112538-7a509b47321a
 	github.com/gcash/bchd v0.15.3-0.20200229013353-8c1fa57b15e7
@@ -39,6 +41,7 @@ require (
 	github.com/minio/blake2b-simd v0.0.0-20160723061019-3f5f724cb5b1
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
+	github.com/openconfig/reference v0.0.0-20200318125927-638fba23f697 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/whyrusleeping/go-logging v0.0.0-20170515211332-0457bb6b88fc
 	golang.org/x/crypto v0.0.0-20200221231518-2aa609cf4a9d

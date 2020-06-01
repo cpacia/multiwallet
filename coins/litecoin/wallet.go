@@ -37,17 +37,22 @@ var _ = iwallet.WalletCrypter(&LitecoinWallet{})
 var _ = iwallet.Escrow(&LitecoinWallet{})
 var _ = iwallet.EscrowWithTimeout(&LitecoinWallet{})
 
-var feeLevels = map[iwallet.FeeLevel]iwallet.Amount{
-	iwallet.FlEconomic: iwallet.NewAmount(5),
-	iwallet.FlNormal:   iwallet.NewAmount(10),
-	iwallet.FlPriority: iwallet.NewAmount(20),
-}
+const (
+	divisibility           = 8
+	averageTransactionSize = 226
+	maxFeePerByte          = 200
+	priorityTarget         = 10
+	normalTarget           = 3
+	economicTarget         = 1
+	superEconomicTarget    = 0.2
+)
 
 // LitecoinWallet extends wallet base and implements the
 // remaining functions for each interface.
 type LitecoinWallet struct {
 	base.WalletBase
-	testnet bool
+	testnet     bool
+	feeProvider base.FeeProvider
 }
 
 // NewLitecoinWallet returns a new LitecoinWallet. This constructor
@@ -62,12 +67,16 @@ func NewLitecoinWallet(cfg *base.WalletConfig) (*LitecoinWallet, error) {
 		return nil, err
 	}
 
+	fp := base.NewExchangeRateFeeProvider(iwallet.CtLitecoin, divisibility, cfg.ExchangeRateProvider, averageTransactionSize,
+		iwallet.NewAmount(maxFeePerByte), priorityTarget, normalTarget, economicTarget, superEconomicTarget)
+
 	w.ChainClient = chainClient
 	w.DB = cfg.DB
 	w.Logger = cfg.Logger
 	w.CoinType = iwallet.CtLitecoin
 	w.Done = make(chan struct{})
 	w.AddressFunc = w.keyToAddress
+	w.feeProvider = fp
 	return w, nil
 }
 
@@ -254,7 +263,10 @@ func (w *LitecoinWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level i
 		tx.AddTxOut(wire.NewTxOut(0, script))
 
 		size := txsizes.EstimateSerializeSize(len(tx.TxIn), []*btcwire.TxOut{btcwire.NewTxOut(0, script)}, false)
-		fpb := w.feePerByte(level)
+		fpb, err := w.feeProvider.GetFee(level)
+		if err != nil {
+			return err
+		}
 		fee := fpb.Mul(iwallet.NewAmount(size)).Int64()
 
 		tx.TxOut[0].Value = int64(totalIn) - fee
@@ -327,7 +339,10 @@ func (w *LitecoinWallet) EstimateEscrowFee(threshold int, level iwallet.FeeLevel
 		wire.VarIntSerializeSize(uint64(nOuts)) + 1 +
 		threshold*66 + txsizes.P2PKHOutputSize*nOuts + redeemScriptSize
 
-	fpb := w.feePerByte(level)
+	fpb, err := w.feeProvider.GetFee(level)
+	if err != nil {
+		return iwallet.NewAmount(0), err
+	}
 	return fpb.Mul(iwallet.NewAmount(size)), nil
 }
 
@@ -656,10 +671,6 @@ func (w *LitecoinWallet) params() *chaincfg.Params {
 	}
 }
 
-func (w *LitecoinWallet) feePerByte(level iwallet.FeeLevel) iwallet.Amount {
-	return feeLevels[level]
-}
-
 func (w *LitecoinWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Address, feeLevel iwallet.FeeLevel) (*wire.MsgTx, error) {
 	// Check for dust
 	addr, err := ltcutil.DecodeAddress(iaddr.String(), w.params())
@@ -751,7 +762,10 @@ func (w *LitecoinWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.A
 	}
 
 	// Get the fee per kilobyte
-	fpb := w.feePerByte(feeLevel)
+	fpb, err := w.feeProvider.GetFee(feeLevel)
+	if err != nil {
+		return nil, err
+	}
 	feePerKB := fpb.Int64() * 1000
 
 	// outputs

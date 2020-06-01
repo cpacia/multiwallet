@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/btcsuite/btcd/blockchain"
@@ -24,7 +23,6 @@ import (
 	"github.com/cpacia/multiwallet/base"
 	"github.com/cpacia/multiwallet/client/blockbook"
 	"github.com/cpacia/multiwallet/database"
-	"github.com/cpacia/proxyclient"
 	iwallet "github.com/cpacia/wallet-interface"
 	"time"
 )
@@ -47,9 +45,10 @@ const maxFeePerByte = 200
 // remaining functions for each interface.
 type BitcoinWallet struct {
 	base.WalletBase
-	testnet  bool
-	feeCache *fees
-	feeUrl   string
+	testnet     bool
+	feeCache    *fees
+	feeUrl      string
+	feeProvider base.FeeProvider
 }
 
 // NewBitcoinWallet returns a new BitcoinWallet. This constructor
@@ -65,12 +64,15 @@ func NewBitcoinWallet(cfg *base.WalletConfig) (*BitcoinWallet, error) {
 		return nil, err
 	}
 
+	fp := base.NewAPIFeeProvider(cfg.FeeUrl, iwallet.NewAmount(maxFeePerByte))
+
 	w.ChainClient = chainClient
 	w.DB = cfg.DB
 	w.Logger = cfg.Logger
 	w.CoinType = iwallet.CtBitcoin
 	w.Done = make(chan struct{})
 	w.AddressFunc = w.keyToAddress
+	w.feeProvider = fp
 	return w, nil
 }
 
@@ -257,7 +259,7 @@ func (w *BitcoinWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level iw
 		tx.AddTxOut(wire.NewTxOut(0, script))
 
 		size := txsizes.EstimateSerializeSize(len(tx.TxIn), tx.TxOut, false)
-		fpb, err := w.feePerByte(level)
+		fpb, err := w.feeProvider.GetFee(level)
 		if err != nil {
 			return err
 		}
@@ -331,7 +333,7 @@ func (w *BitcoinWallet) EstimateEscrowFee(threshold int, level iwallet.FeeLevel)
 		wire.VarIntSerializeSize(uint64(nOuts)) + 1 +
 		threshold*66 + txsizes.P2PKHOutputSize*nOuts + redeemScriptSize
 
-	fpb, err := w.feePerByte(level)
+	fpb, err := w.feeProvider.GetFee(level)
 	if err != nil {
 		return iwallet.NewAmount(0), err
 	}
@@ -668,47 +670,6 @@ type fees struct {
 	expires  time.Time
 }
 
-func (w *BitcoinWallet) feePerByte(level iwallet.FeeLevel) (iwallet.Amount, error) {
-	selectFee := func(level iwallet.FeeLevel, fee fees) iwallet.Amount {
-		min := func(a, b uint64) uint64 {
-			if a < b {
-				return a
-			}
-			return b
-		}
-
-		switch level {
-		case iwallet.FlEconomic:
-			return iwallet.NewAmount(min(fee.Economic, maxFeePerByte))
-		case iwallet.FlPriority:
-			return iwallet.NewAmount(min(fee.Priority, maxFeePerByte))
-		default:
-			return iwallet.NewAmount(min(fee.Normal, maxFeePerByte))
-		}
-	}
-
-	if w.feeCache != nil && w.feeCache.expires.Before(time.Now()) {
-		return selectFee(level, *w.feeCache), nil
-	}
-
-	client := proxyclient.NewHttpClient()
-
-	resp, err := client.Get(w.feeUrl)
-	if err != nil {
-		return feeLevels[level], nil
-	}
-	decoder := json.NewDecoder(resp.Body)
-
-	var f fees
-	if err := decoder.Decode(&f); err != nil {
-		return feeLevels[level], nil
-	}
-	f.expires = time.Now().Add(time.Hour)
-	w.feeCache = &f
-
-	return selectFee(level, *w.feeCache), nil
-}
-
 func (w *BitcoinWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Address, feeLevel iwallet.FeeLevel) (*wire.MsgTx, error) {
 	// Check for dust
 	addr, err := btcutil.DecodeAddress(iaddr.String(), w.params())
@@ -800,7 +761,7 @@ func (w *BitcoinWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Ad
 	}
 
 	// Get the fee per kilobyte
-	fpb, err := w.feePerByte(feeLevel)
+	fpb, err := w.feeProvider.GetFee(feeLevel)
 	if err != nil {
 		return nil, err
 	}

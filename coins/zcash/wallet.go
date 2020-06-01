@@ -51,18 +51,20 @@ const (
 	MainnetMagic mbwire.BitcoinNet = 0x6427e924
 	// TestnetMagic is testnet network constant
 	TestnetMagic mbwire.BitcoinNet = 0xbff91afa
+
+	divisibility           = 8
+	averageTransactionSize = 226
+	maxFeePerByte          = 200
+	priorityTarget         = 10
+	normalTarget           = 3
+	economicTarget         = 1
+	superEconomicTarget    = 0.2
 )
 
 // Assert interfaces
 var _ = iwallet.Wallet(&ZCashWallet{})
 var _ = iwallet.WalletCrypter(&ZCashWallet{})
 var _ = iwallet.Escrow(&ZCashWallet{})
-
-var feeLevels = map[iwallet.FeeLevel]iwallet.Amount{
-	iwallet.FlEconomic: iwallet.NewAmount(5),
-	iwallet.FlNormal:   iwallet.NewAmount(10),
-	iwallet.FlPriority: iwallet.NewAmount(20),
-}
 
 func init() {
 	MainNetParams = chaincfg.MainNetParams
@@ -86,8 +88,9 @@ func init() {
 // remaining functions for each interface.
 type ZCashWallet struct {
 	base.WalletBase
-	testnet bool
-	feeUrl  string
+	testnet     bool
+	feeUrl      string
+	feeProvider base.FeeProvider
 }
 
 // NewZCashWallet returns a new ZCashWallet. This constructor
@@ -103,12 +106,16 @@ func NewZCashWallet(cfg *base.WalletConfig) (*ZCashWallet, error) {
 		return nil, err
 	}
 
+	fp := base.NewExchangeRateFeeProvider(iwallet.CtZCash, divisibility, cfg.ExchangeRateProvider, averageTransactionSize,
+		iwallet.NewAmount(maxFeePerByte), priorityTarget, normalTarget, economicTarget, superEconomicTarget)
+
 	w.ChainClient = chainClient
 	w.DB = cfg.DB
 	w.Logger = cfg.Logger
 	w.CoinType = iwallet.CtZCash
 	w.Done = make(chan struct{})
 	w.AddressFunc = w.keyToAddress
+	w.feeProvider = fp
 	return w, nil
 }
 
@@ -296,7 +303,10 @@ func (w *ZCashWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, level iwal
 		tx.AddTxOut(wire.NewTxOut(0, script))
 
 		size := txsizes.EstimateSerializeSize(len(tx.TxIn), tx.TxOut, false)
-		fpb := w.feePerByte(level)
+		fpb, err := w.feeProvider.GetFee(level)
+		if err != nil {
+			return err
+		}
 		fee := fpb.Mul(iwallet.NewAmount(size)).Int64()
 
 		tx.TxOut[0].Value = int64(totalIn) - fee
@@ -380,7 +390,10 @@ func (w *ZCashWallet) EstimateEscrowFee(threshold int, level iwallet.FeeLevel) (
 		wire.VarIntSerializeSize(uint64(nOuts)) + 1 +
 		threshold*66 + txsizes.P2PKHOutputSize*nOuts + redeemScriptSize + 15
 
-	fpb := w.feePerByte(level)
+	fpb, err := w.feeProvider.GetFee(level)
+	if err != nil {
+		return iwallet.NewAmount(0), err
+	}
 	return fpb.Mul(iwallet.NewAmount(size)), nil
 }
 
@@ -593,10 +606,6 @@ func (w *ZCashWallet) params() *chaincfg.Params {
 	}
 }
 
-func (w *ZCashWallet) feePerByte(level iwallet.FeeLevel) iwallet.Amount {
-	return feeLevels[level]
-}
-
 func (w *ZCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Address, feeLevel iwallet.FeeLevel) (*wire.MsgTx, error) {
 	// Check for dust
 	addr, err := btcutil.DecodeAddress(iaddr.String(), w.params())
@@ -683,7 +692,10 @@ func (w *ZCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Addr
 	}
 
 	// Get the fee per kilobyte
-	fpb := w.feePerByte(feeLevel)
+	fpb, err := w.feeProvider.GetFee(feeLevel)
+	if err != nil {
+		return nil, err
+	}
 	feePerKB := fpb.Int64() * 1000
 
 	// outputs

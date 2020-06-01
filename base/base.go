@@ -23,11 +23,12 @@ var ErrInsufficientFunds = errors.New("insufficient funds")
 // WalletConfig is struct that can be used pass into the constructor
 // for each coin's wallet.
 type WalletConfig struct {
-	DB        database.Database
-	Logger    *logging.Logger
-	Testnet   bool
-	ClientUrl string
-	FeeUrl    string
+	DB                   database.Database
+	Logger               *logging.Logger
+	Testnet              bool
+	ClientUrl            string
+	FeeUrl               string
+	ExchangeRateProvider ExchangeRateProvider
 }
 
 // DBTx satisfies the iwallet.Tx interface.

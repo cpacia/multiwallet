@@ -34,17 +34,22 @@ var _ = iwallet.WalletCrypter(&BitcoinCashWallet{})
 var _ = iwallet.Escrow(&BitcoinCashWallet{})
 var _ = iwallet.EscrowWithTimeout(&BitcoinCashWallet{})
 
-var feeLevels = map[iwallet.FeeLevel]iwallet.Amount{
-	iwallet.FlEconomic: iwallet.NewAmount(5),
-	iwallet.FlNormal:   iwallet.NewAmount(15),
-	iwallet.FlPriority: iwallet.NewAmount(25),
-}
+const (
+	divisibility           = 8
+	averageTransactionSize = 226
+	maxFeePerByte          = 200
+	priorityTarget         = 10
+	normalTarget           = 3
+	economicTarget         = 1
+	superEconomicTarget    = 0.2
+)
 
 // BitcoinCashWallet extends wallet base and implements the
 // remaining functions for each interface.
 type BitcoinCashWallet struct {
 	base.WalletBase
-	testnet bool
+	testnet     bool
+	feeProvider base.FeeProvider
 }
 
 // NewBitcoinCashWallet returns a new BitcoinCashWallet. This constructor
@@ -59,12 +64,16 @@ func NewBitcoinCashWallet(cfg *base.WalletConfig) (*BitcoinCashWallet, error) {
 		return nil, err
 	}
 
+	fp := base.NewExchangeRateFeeProvider(iwallet.CtBitcoinCash, divisibility, cfg.ExchangeRateProvider, averageTransactionSize,
+		iwallet.NewAmount(maxFeePerByte), priorityTarget, normalTarget, economicTarget, superEconomicTarget)
+
 	w.ChainClient = chainClient
 	w.DB = cfg.DB
 	w.Logger = cfg.Logger
 	w.CoinType = iwallet.CtBitcoinCash
 	w.Done = make(chan struct{})
 	w.AddressFunc = w.keyToAddress
+	w.feeProvider = fp
 	return w, nil
 }
 
@@ -251,7 +260,11 @@ func (w *BitcoinCashWallet) SweepWallet(wtx iwallet.Tx, to iwallet.Address, leve
 		tx.AddTxOut(wire.NewTxOut(0, script))
 
 		size := txsizes.EstimateSerializeSize(len(tx.TxIn), tx.TxOut, false)
-		fee := w.feePerByte(level).Mul(iwallet.NewAmount(size)).Int64()
+		fpb, err := w.feeProvider.GetFee(level)
+		if err != nil {
+			return err
+		}
+		fee := fpb.Mul(iwallet.NewAmount(size)).Int64()
 
 		tx.TxOut[0].Value = int64(totalIn) - fee
 
@@ -334,7 +347,11 @@ func (w *BitcoinCashWallet) EstimateEscrowFee(threshold int, level iwallet.FeeLe
 		wire.VarIntSerializeSize(uint64(nOuts)) + 1 +
 		threshold*66 + txsizes.P2PKHOutputSize*nOuts + redeemScriptSize
 
-	return w.feePerByte(level).Mul(iwallet.NewAmount(size)), nil
+	fpb, err := w.feeProvider.GetFee(level)
+	if err != nil {
+		return iwallet.NewAmount(0), err
+	}
+	return fpb.Mul(iwallet.NewAmount(size)), nil
 }
 
 // CreateMultisigAddress creates a new threshold multisig address using the
@@ -733,10 +750,6 @@ func (w *BitcoinCashWallet) params() *chaincfg.Params {
 	}
 }
 
-func (w *BitcoinCashWallet) feePerByte(level iwallet.FeeLevel) iwallet.Amount {
-	return feeLevels[level]
-}
-
 func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Address, feeLevel iwallet.FeeLevel) (*wire.MsgTx, error) {
 	// Check for dust
 	addr, err := bchutil.DecodeAddress(iaddr.String(), w.params())
@@ -828,7 +841,11 @@ func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwalle
 	}
 
 	// Get the fee per kilobyte
-	feePerKB := w.feePerByte(feeLevel).Int64() * 1000
+	fpb, err := w.feeProvider.GetFee(feeLevel)
+	if err != nil {
+		return nil, err
+	}
+	feePerKB := fpb.Int64() * 1000
 
 	// outputs
 	out := wire.NewTxOut(amount, script)
