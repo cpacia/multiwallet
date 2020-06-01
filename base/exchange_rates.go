@@ -22,9 +22,13 @@ type ExchangeRateProvider interface {
 type DefaultExchangeRateProvider struct {
 	apiEndpoint string
 	client      *http.Client
-	cache       iwallet.Amount
+	cache       map[string]apiResponse
 	lastQueried time.Time
 	mtx         sync.Mutex
+}
+
+type apiResponse struct {
+	Last float64 `json:"last"`
 }
 
 // NewDefaultExchangeRateProvider returns a new default ExchangeRateProvider.
@@ -33,6 +37,7 @@ func NewDefaultExchangeRateProvider(apiURL string) ExchangeRateProvider {
 		client:      proxyclient.NewHttpClient(),
 		apiEndpoint: apiURL,
 		mtx:         sync.Mutex{},
+		cache:       make(map[string]apiResponse),
 	}
 }
 
@@ -41,23 +46,17 @@ func (erp *DefaultExchangeRateProvider) GetUSDRate(coinType iwallet.CoinType) (i
 	erp.mtx.Lock()
 	defer erp.mtx.Unlock()
 
-	if erp.lastQueried.Add(time.Minute * 10).Before(time.Now()) {
-		return erp.cache, nil
-	}
-
-	type apiResponse struct {
-		Last float64 `json:"last"`
-	}
-
-	resp, err := erp.client.Get(erp.apiEndpoint)
-	if err != nil {
-		return iwallet.NewAmount(0), nil
-	}
-
 	feeMap := make(map[string]apiResponse)
-
-	if err := json.NewDecoder(resp.Body).Decode(&feeMap); err != nil {
-		return iwallet.NewAmount(0), nil
+	if erp.lastQueried.Add(time.Minute * 10).After(time.Now()) {
+		feeMap = erp.cache
+	} else {
+		resp, err := erp.client.Get(erp.apiEndpoint)
+		if err != nil {
+			return iwallet.NewAmount(0), nil
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&feeMap); err != nil {
+			return iwallet.NewAmount(0), nil
+		}
 	}
 
 	usdRate, ok := feeMap["USD"]
@@ -65,36 +64,36 @@ func (erp *DefaultExchangeRateProvider) GetUSDRate(coinType iwallet.CoinType) (i
 		return iwallet.NewAmount(0), errors.New("rating unavailable")
 	}
 
-	erp.cache = iwallet.NewAmount(usdRate.Last * 100)
+	erp.cache = feeMap
 	erp.lastQueried = time.Now()
 
 	switch coinType {
 	case iwallet.CtBitcoin:
-		return erp.cache, nil
+		return iwallet.NewAmount(uint64(usdRate.Last) * 100), nil
 	case iwallet.CtBitcoinCash:
 		bchRate, ok := feeMap["BCH"]
 		if !ok {
 			return iwallet.NewAmount(0), errors.New("rating unavailable")
 		}
-		return erp.cache.Div(iwallet.NewAmount(bchRate.Last)), nil
+		return iwallet.NewAmount(uint64(usdRate.Last) * 100).Div(iwallet.NewAmount(uint64(bchRate.Last) * 100)), nil
 	case iwallet.CtLitecoin:
 		ltcRate, ok := feeMap["LTC"]
 		if !ok {
 			return iwallet.NewAmount(0), errors.New("rating unavailable")
 		}
-		return erp.cache.Div(iwallet.NewAmount(ltcRate.Last)), nil
+		return iwallet.NewAmount(uint64(usdRate.Last) * 100).Div(iwallet.NewAmount(uint64(ltcRate.Last) * 100)), nil
 	case iwallet.CtZCash:
 		zecRate, ok := feeMap["ZEC"]
 		if !ok {
 			return iwallet.NewAmount(0), errors.New("rating unavailable")
 		}
-		return erp.cache.Div(iwallet.NewAmount(zecRate.Last)), nil
+		return iwallet.NewAmount(uint64(usdRate.Last) * 100).Div(iwallet.NewAmount(uint64(zecRate.Last) * 100)), nil
 	case iwallet.CtEthereum:
 		ethRate, ok := feeMap["ETH"]
 		if !ok {
 			return iwallet.NewAmount(0), errors.New("rating unavailable")
 		}
-		return erp.cache.Div(iwallet.NewAmount(ethRate.Last)), nil
+		return iwallet.NewAmount(uint64(usdRate.Last) * 100).Div(iwallet.NewAmount(uint64(ethRate.Last) * 100)), nil
 	}
 	return iwallet.NewAmount(0), errors.New("unknown cointype")
 }

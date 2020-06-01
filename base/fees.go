@@ -151,13 +151,13 @@ func (fp *ExchangeRateFeeProvider) GetFee(level iwallet.FeeLevel) (iwallet.Amoun
 		return iwallet.NewAmount(0), err
 	}
 
-	rate := float64(rateAmt.Uint64()) / 100
+	rate := float64(rateAmt.Uint64())
 
 	feePerByte := (((target / 100) / rate) * fp.divisibility) / fp.avgTransactionSize
 	if feePerByte == 0 {
 		return iwallet.NewAmount(1), nil
 	}
-	feeAmt := iwallet.NewAmount(feePerByte)
+	feeAmt := iwallet.NewAmount(uint64(feePerByte))
 	if feeAmt.Cmp(fp.maxFee) > 0 {
 		return fp.maxFee, nil
 	}
