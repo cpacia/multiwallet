@@ -24,8 +24,9 @@ import (
 
 func newTestWallet() (*BitcoinWallet, error) {
 	w := &BitcoinWallet{
-		testnet: true,
-		feeUrl:  "https://btc.fees.openbazaar.org/",
+		testnet:     true,
+		feeUrl:      "https://btc.fees.openbazaar.org/",
+		feeProvider: base.NewHardCodedFeeProvider(iwallet.NewAmount(50), iwallet.NewAmount(40), iwallet.NewAmount(30), iwallet.NewAmount(20)),
 	}
 
 	httpmock.RegisterResponder("GET", w.feeUrl,
@@ -135,12 +136,12 @@ func TestBitcoinWallet_EstimateSpendFee(t *testing.T) {
 		{
 			amount:   iwallet.NewAmount(500000),
 			feeLevel: iwallet.FlEconomic,
-			expected: iwallet.NewAmount(864),
+			expected: iwallet.NewAmount(2160),
 		},
 		{
 			amount:   iwallet.NewAmount(500000),
 			feeLevel: iwallet.FlNormal,
-			expected: iwallet.NewAmount(720),
+			expected: iwallet.NewAmount(2880),
 		},
 		{
 			amount:   iwallet.NewAmount(500000),
@@ -256,7 +257,7 @@ func TestBitcoinWallet_Spend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected := "ba147e7132d46d17a85bcc51a381f5cb704f7ec7e668a851521ab17cb30e9c3d"
+	expected := "5ff7259943524c1f9f91ba5a0497ef84fb1d2a463e5d6ac40a517a82a6dba2d3"
 	if txid.String() != expected {
 		t.Errorf("Expected txid %s, got %s", expected, txid)
 	}
@@ -353,7 +354,7 @@ func TestBitcoinWallet_SweepWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected := "30f67e08e85533be14031e86eea07aada5cdabdfda634537e1778340c88420a7"
+	expected := "8d403b9c2ed2b38cad9949263577b6f9a06c20fbc969d40dea90dffb2fb6a221"
 	if txid.String() != expected {
 		t.Errorf("Expected txid %s, got %s", expected, txid)
 	}
@@ -407,12 +408,12 @@ func TestBitcoinWallet_EstimateEscrowFee(t *testing.T) {
 		{
 			threshold: 1,
 			level:     iwallet.FlEconomic,
-			expected:  iwallet.NewAmount(2196),
+			expected:  iwallet.NewAmount(5490),
 		},
 		{
 			threshold: 1,
 			level:     iwallet.FlNormal,
-			expected:  iwallet.NewAmount(1830),
+			expected:  iwallet.NewAmount(7320),
 		},
 		{
 			threshold: 1,
@@ -422,17 +423,17 @@ func TestBitcoinWallet_EstimateEscrowFee(t *testing.T) {
 		{
 			threshold: 2,
 			level:     iwallet.FlEconomic,
-			expected:  iwallet.NewAmount(1585),
+			expected:  iwallet.NewAmount(9510),
 		},
 		{
 			threshold: 2,
 			level:     iwallet.FlNormal,
-			expected:  iwallet.NewAmount(7925),
+			expected:  iwallet.NewAmount(12680),
 		},
 		{
 			threshold: 2,
 			level:     iwallet.FlPriority,
-			expected:  iwallet.NewAmount(6340),
+			expected:  iwallet.NewAmount(15850),
 		},
 	}
 
@@ -1064,8 +1065,8 @@ func TestBitcoinWallet_buildTx(t *testing.T) {
 	if !paysTo {
 		t.Error("Pay to address not found in transaction")
 	}
-	if totalOut != 998125 {
-		t.Errorf("Expected totalOut of %d, got %d", 998125, totalOut)
+	if totalOut != 997000 {
+		t.Errorf("Expected totalOut of %d, got %d", 997000, totalOut)
 	}
 
 	vm, err := txscript.NewEngine(fromScript, tx, 0, txscript.StandardVerifyFlags, nil, nil, 1000000)

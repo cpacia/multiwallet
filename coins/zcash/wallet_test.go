@@ -23,7 +23,8 @@ import (
 
 func newTestWallet() (*ZCashWallet, error) {
 	w := &ZCashWallet{
-		testnet: true,
+		testnet:     true,
+		feeProvider: base.NewHardCodedFeeProvider(iwallet.NewAmount(50), iwallet.NewAmount(40), iwallet.NewAmount(30), iwallet.NewAmount(20)),
 	}
 
 	chainClient := base.NewMockChainClient()
@@ -131,17 +132,17 @@ func TestZCashWallet_EstimateSpendFee(t *testing.T) {
 		{
 			amount:   iwallet.NewAmount(500000),
 			feeLevel: iwallet.FlEconomic,
-			expected: iwallet.NewAmount(375),
+			expected: iwallet.NewAmount(2250),
 		},
 		{
 			amount:   iwallet.NewAmount(500000),
 			feeLevel: iwallet.FlNormal,
-			expected: iwallet.NewAmount(750),
+			expected: iwallet.NewAmount(3000),
 		},
 		{
 			amount:   iwallet.NewAmount(500000),
 			feeLevel: iwallet.FlPriority,
-			expected: iwallet.NewAmount(1500),
+			expected: iwallet.NewAmount(3750),
 		},
 		{
 			amount:        iwallet.NewAmount(1000000),
@@ -242,7 +243,7 @@ func TestZCashWallet_Spend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected := "282e2e52232a62f7006a1a562ac5e38b9cc5b9ebed49f27a42c6231811a8e721"
+	expected := "e65d25281d8317f0cc32c72495cfed1e18e27daf92be00e4a7ff30589ef3b0a9"
 	if txid.String() != expected {
 		t.Errorf("Expected txid %s, got %s", expected, txid)
 	}
@@ -314,7 +315,7 @@ func TestZCashWallet_SweepWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected := "e2d007012334b65bc450f01db2fc10e9683b48b9b5b3740e626d3d9f4de4250f"
+	expected := "4afb1354d5dc14d516f58c4b79a77a4a84ce431b423843b3fe96e27cb519401a"
 	if txid.String() != expected {
 		t.Errorf("Expected txid %s, got %s", expected, txid)
 	}
@@ -353,32 +354,32 @@ func TestZCashWallet_EstimateEscrowFee(t *testing.T) {
 		{
 			threshold: 1,
 			level:     iwallet.FlEconomic,
-			expected:  iwallet.NewAmount(990),
+			expected:  iwallet.NewAmount(5940),
 		},
 		{
 			threshold: 1,
 			level:     iwallet.FlNormal,
-			expected:  iwallet.NewAmount(1980),
+			expected:  iwallet.NewAmount(7920),
 		},
 		{
 			threshold: 1,
 			level:     iwallet.FlPriority,
-			expected:  iwallet.NewAmount(3960),
+			expected:  iwallet.NewAmount(9900),
 		},
 		{
 			threshold: 2,
 			level:     iwallet.FlEconomic,
-			expected:  iwallet.NewAmount(1660),
+			expected:  iwallet.NewAmount(9960),
 		},
 		{
 			threshold: 2,
 			level:     iwallet.FlNormal,
-			expected:  iwallet.NewAmount(3320),
+			expected:  iwallet.NewAmount(13280),
 		},
 		{
 			threshold: 2,
 			level:     iwallet.FlPriority,
-			expected:  iwallet.NewAmount(6640),
+			expected:  iwallet.NewAmount(16600),
 		},
 	}
 
@@ -686,8 +687,8 @@ func TestZCashWallet_buildTx(t *testing.T) {
 	if !paysTo {
 		t.Error("Pay to address not found in transaction")
 	}
-	if totalOut != 999250 {
-		t.Errorf("Expected totalOut of %d, got %d", 999250, totalOut)
+	if totalOut != 997000 {
+		t.Errorf("Expected totalOut of %d, got %d", 997000, totalOut)
 	}
 }
 

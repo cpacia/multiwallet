@@ -33,12 +33,6 @@ var _ = iwallet.WalletCrypter(&BitcoinWallet{})
 var _ = iwallet.Escrow(&BitcoinWallet{})
 var _ = iwallet.EscrowWithTimeout(&BitcoinWallet{})
 
-var feeLevels = map[iwallet.FeeLevel]iwallet.Amount{
-	iwallet.FlEconomic: iwallet.NewAmount(5),
-	iwallet.FlNormal:   iwallet.NewAmount(10),
-	iwallet.FlPriority: iwallet.NewAmount(20),
-}
-
 const maxFeePerByte = 200
 
 // BitcoinWallet extends wallet base and implements the

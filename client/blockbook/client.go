@@ -315,7 +315,7 @@ func (c *BlockbookClient) SubscribeBlocks() (*base.BlockSubscription, error) {
 }
 
 func (c *BlockbookClient) Broadcast(serializedTx []byte) error {
-	resp, err := c.client.Post(c.clientUrl+"/sendtx", "text/plain", bytes.NewReader([]byte(hex.EncodeToString(serializedTx))))
+	resp, err := c.client.Post(c.clientUrl+"/sendtx/", "text/plain", bytes.NewReader([]byte(hex.EncodeToString(serializedTx))))
 	if err != nil {
 		return err
 	}
@@ -323,7 +323,7 @@ func (c *BlockbookClient) Broadcast(serializedTx []byte) error {
 	if resp.StatusCode != http.StatusOK {
 		body, err := ioutil.ReadAll(resp.Body)
 		if err == nil {
-			return errors.New(string(body))
+			return fmt.Errorf("transaction broadcast failed: %s", string(body))
 		}
 		return fmt.Errorf("transaction broadcast failed. status %d", resp.StatusCode)
 	}

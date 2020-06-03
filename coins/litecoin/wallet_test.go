@@ -18,14 +18,14 @@ import (
 	"github.com/ltcsuite/ltcd/wire"
 	"github.com/ltcsuite/ltcutil"
 	"github.com/op/go-logging"
-	"github.com/whyrusleeping/go-logging"
 	"testing"
 	"time"
 )
 
 func newTestWallet() (*LitecoinWallet, error) {
 	w := &LitecoinWallet{
-		testnet: true,
+		testnet:     true,
+		feeProvider: base.NewHardCodedFeeProvider(iwallet.NewAmount(50), iwallet.NewAmount(40), iwallet.NewAmount(30), iwallet.NewAmount(20)),
 	}
 
 	chainClient := base.NewMockChainClient()
@@ -132,17 +132,17 @@ func TestLitecoinWallet_EstimateSpendFee(t *testing.T) {
 		{
 			amount:   iwallet.NewAmount(500000),
 			feeLevel: iwallet.FlEconomic,
-			expected: iwallet.NewAmount(360),
+			expected: iwallet.NewAmount(2160),
 		},
 		{
 			amount:   iwallet.NewAmount(500000),
 			feeLevel: iwallet.FlNormal,
-			expected: iwallet.NewAmount(720),
+			expected: iwallet.NewAmount(2880),
 		},
 		{
 			amount:   iwallet.NewAmount(500000),
 			feeLevel: iwallet.FlPriority,
-			expected: iwallet.NewAmount(1440),
+			expected: iwallet.NewAmount(3600),
 		},
 		{
 			amount:        iwallet.NewAmount(1000000),
@@ -253,7 +253,7 @@ func TestLitecoinWallet_Spend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected := "3afacfd4fb92e889199d388071aec83572de9c3f054be46726358ca6d1b3ab36"
+	expected := "5f3f9e36bdf1f29b4586f08eaf70a8c4b566c000b5a648d90d98a6d87817213f"
 	if txid.String() != expected {
 		t.Errorf("Expected txid %s, got %s", expected, txid)
 	}
@@ -350,7 +350,7 @@ func TestLitecoinWallet_SweepWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expected := "ca696700e23be38c57f006423c2f3372b2a8c06dab72f01476b6b6f87cc9626a"
+	expected := "6221faba48731f175d3f5de3cbfb6684d534530c23c5722785aac45453305f9d"
 	if txid.String() != expected {
 		t.Errorf("Expected txid %s, got %s", expected, txid)
 	}
@@ -404,32 +404,32 @@ func TestLitecoinWallet_EstimateEscrowFee(t *testing.T) {
 		{
 			threshold: 1,
 			level:     iwallet.FlEconomic,
-			expected:  iwallet.NewAmount(915),
+			expected:  iwallet.NewAmount(5490),
 		},
 		{
 			threshold: 1,
 			level:     iwallet.FlNormal,
-			expected:  iwallet.NewAmount(1830),
+			expected:  iwallet.NewAmount(7320),
 		},
 		{
 			threshold: 1,
 			level:     iwallet.FlPriority,
-			expected:  iwallet.NewAmount(3660),
+			expected:  iwallet.NewAmount(9150),
 		},
 		{
 			threshold: 2,
 			level:     iwallet.FlEconomic,
-			expected:  iwallet.NewAmount(1585),
+			expected:  iwallet.NewAmount(9510),
 		},
 		{
 			threshold: 2,
 			level:     iwallet.FlNormal,
-			expected:  iwallet.NewAmount(3170),
+			expected:  iwallet.NewAmount(12680),
 		},
 		{
 			threshold: 2,
 			level:     iwallet.FlPriority,
-			expected:  iwallet.NewAmount(6340),
+			expected:  iwallet.NewAmount(15850),
 		},
 	}
 
@@ -1061,8 +1061,8 @@ func TestLitecoinWallet_buildTx(t *testing.T) {
 	if !paysTo {
 		t.Error("Pay to address not found in transaction")
 	}
-	if totalOut != 999250 {
-		t.Errorf("Expected totalOut of %d, got %d", 999250, totalOut)
+	if totalOut != 997000 {
+		t.Errorf("Expected totalOut of %d, got %d", 997000, totalOut)
 	}
 
 	vm, err := txscript.NewEngine(fromScript, tx, 0, txscript.StandardVerifyFlags, nil, nil, 1000000)
