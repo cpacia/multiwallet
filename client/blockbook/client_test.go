@@ -207,14 +207,14 @@ func TestBlockbookClient_Broadcast(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.Deactivate()
 
-	httpmock.RegisterResponder("POST", client.clientUrl+"/sendtx",
+	httpmock.RegisterResponder("POST", client.clientUrl+"/sendtx/",
 		httpmock.NewStringResponder(200, ``))
 
 	if err := client.Broadcast([]byte{0x00, 0x01, 0x02}); err != nil {
 		t.Fatal(err)
 	}
 
-	httpmock.RegisterResponder("POST", client.clientUrl+"/sendtx",
+	httpmock.RegisterResponder("POST", client.clientUrl+"/sendtx/",
 		httpmock.NewStringResponder(400, ``))
 
 	if err := client.Broadcast([]byte{0x00, 0x01, 0x02}); err == nil {

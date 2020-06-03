@@ -34,7 +34,7 @@ type WalletConfig struct {
 // DBTx satisfies the iwallet.Tx interface.
 type DBTx struct {
 	isClosed bool
-	mtx      sync.Mutex
+	mtx      *sync.Mutex
 
 	OnCommit func() error
 }
@@ -96,7 +96,7 @@ type WalletBase struct {
 // once. After Commit() or Rollback() is called the transaction can be discarded.
 func (w *WalletBase) Begin() (iwallet.Tx, error) {
 	w.txMtx.Lock()
-	return &DBTx{mtx: w.txMtx}, nil
+	return &DBTx{mtx: &w.txMtx}, nil
 }
 
 // WalletExists should return whether the wallet exits or has been
