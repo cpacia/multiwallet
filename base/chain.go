@@ -587,6 +587,10 @@ func (cm *ChainManager) updateUnconfirmed(unconfirmed map[iwallet.TransactionID]
 					}
 				}
 
+				if err := tx.Delete("txid", resp.ID.String(), &database.UnconfirmedTransaction{}); err != nil {
+					cm.logger.Errorf("[%s] Error deleting unconfirmed transaction %s: %s", cm.coinType, resp.ID, err)
+				}
+
 				// Note that if the err is a NotFoundError this is likely a watch only address as
 				// we don't save watch only transactions in the database. In this case we still
 				// watch to notify subscribes and delete the unconfirmed tx from memory.
