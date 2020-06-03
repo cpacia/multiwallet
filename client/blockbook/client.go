@@ -470,7 +470,7 @@ func buildTransaction(transaction *transaction, ct iwallet.CoinType) (iwallet.Tr
 		tx.From = append(tx.From, from)
 	}
 
-	txidBytes, err := hex.DecodeString(transaction.Txid)
+	txidHash, err := chainhash.NewHashFromStr(transaction.Txid)
 	if err != nil {
 		return tx, err
 	}
@@ -490,7 +490,7 @@ func buildTransaction(transaction *transaction, ct iwallet.CoinType) (iwallet.Tr
 		}
 
 		id := make([]byte, 36)
-		copy(id[:32], txidBytes)
+		copy(id[:32], txidHash[:])
 		copy(id[32:], index)
 
 		to := iwallet.SpendInfo{

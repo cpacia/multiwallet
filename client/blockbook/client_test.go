@@ -102,7 +102,7 @@ func TestBlockbookClient_GetTransaction(t *testing.T) {
 		t.Errorf("Expected to amount %s, got %s", expectedToAmount0, tx.To[0].Amount.String())
 	}
 
-	expectedToID0 := "2a4cfac4cb8a322a31ac683bf6f2f05b6a5a1788af4e23a6a91a25fc7d891ce000000000"
+	expectedToID0 := "e01c897dfc251aa9a6234eaf88175a6a5bf0f2f63b68ac312a328acbc4fa4c2a00000000"
 	if hex.EncodeToString(tx.To[0].ID) != expectedToID0 {
 		t.Errorf("Expected to ID %s, got %s", expectedToID0, hex.EncodeToString(tx.To[0].ID))
 	}
@@ -117,7 +117,7 @@ func TestBlockbookClient_GetTransaction(t *testing.T) {
 		t.Errorf("Expected to amount %s, got %s", expectedToAmount1, tx.To[1].Amount.String())
 	}
 
-	expectedToID1 := "2a4cfac4cb8a322a31ac683bf6f2f05b6a5a1788af4e23a6a91a25fc7d891ce001000000"
+	expectedToID1 := "e01c897dfc251aa9a6234eaf88175a6a5bf0f2f63b68ac312a328acbc4fa4c2a01000000"
 	if hex.EncodeToString(tx.To[1].ID) != expectedToID1 {
 		t.Errorf("Expected to ID %s, got %s", expectedToID1, hex.EncodeToString(tx.To[1].ID))
 	}
