@@ -112,7 +112,7 @@ func (fp *APIFeeProvider) GetFee(level iwallet.FeeLevel) (iwallet.Amount, error)
 }
 
 // ExchangeRateFeeProvider is an implementation of the FeeProvider which targets a
-// specific exchange rate for the fees.
+// specific USD exchange rate for the fees.
 type ExchangeRateFeeProvider struct {
 	targetMap          map[iwallet.FeeLevel]float64
 	maxFee             iwallet.Amount
@@ -123,8 +123,8 @@ type ExchangeRateFeeProvider struct {
 }
 
 // NewExchangeRateFeeProvider returns a new ExchangeRateFeeProvider.
-func NewExchangeRateFeeProvider(coinType iwallet.CoinType, divisibility int, erp ExchangeRateProvider, avgTransactionSize int, maxFee iwallet.Amount,
-	PriorityUSDCents, NormalUSDCents, EconomicUSDCents, SuperEconomicUSDCents float64) FeeProvider {
+func NewExchangeRateFeeProvider(coinType iwallet.CoinType, divisibility int, erp ExchangeRateProvider, avgTransactionSize int,
+	maxFeePerByte iwallet.Amount, PriorityUSDCents, NormalUSDCents, EconomicUSDCents, SuperEconomicUSDCents float64) FeeProvider {
 	return &ExchangeRateFeeProvider{
 		targetMap: map[iwallet.FeeLevel]float64{
 			iwallet.FlPriority:      PriorityUSDCents,
@@ -132,7 +132,7 @@ func NewExchangeRateFeeProvider(coinType iwallet.CoinType, divisibility int, erp
 			iwallet.FlEconomic:      EconomicUSDCents,
 			iwallet.FLSuperEconomic: SuperEconomicUSDCents,
 		},
-		maxFee:             maxFee,
+		maxFee:             maxFeePerByte,
 		erp:                erp,
 		coinType:           coinType,
 		divisibility:       math.Pow10(int(divisibility)),
@@ -140,6 +140,7 @@ func NewExchangeRateFeeProvider(coinType iwallet.CoinType, divisibility int, erp
 	}
 }
 
+// GetFee returns the appropriate fee for the given level.
 func (fp *ExchangeRateFeeProvider) GetFee(level iwallet.FeeLevel) (iwallet.Amount, error) {
 	target, ok := fp.targetMap[level]
 	if !ok {

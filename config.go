@@ -102,6 +102,16 @@ func LogDir(logDir string) Option {
 	}
 }
 
+// Testnet configures the multiwallet to use the testnet for all coins.
+//
+// Defaults to false which will use mainnet.
+func Testnet(testnet bool) Option {
+	return func(cfg *Config) error {
+		cfg.UseTestnet = testnet
+		return nil
+	}
+}
+
 // Wallets configures the multiwallet to use the provided wallets.
 //
 // Defaults to all implemented wallets.
