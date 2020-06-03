@@ -83,7 +83,7 @@ func TestBlockbookClient_GetTransaction(t *testing.T) {
 		t.Errorf("Expected from amount %s, got %s", expectedFromAmount, tx.From[0].Amount.String())
 	}
 
-	expectedFromID := "88e9d70258ddcec90be40aa90990aadf6829f00cbd94643e084790ed6c57531a20000000"
+	expectedFromID := "1a53576ced9047083e6494bd0cf02968dfaa9009a90ae40bc9cedd5802d7e98820000000"
 	if hex.EncodeToString(tx.From[0].ID) != expectedFromID {
 		t.Errorf("Expected from ID %s, got %s", expectedFromID, hex.EncodeToString(tx.From[0].ID))
 	}

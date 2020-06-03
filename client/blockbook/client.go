@@ -13,6 +13,7 @@ import (
 	"github.com/cpacia/multiwallet/base"
 	"github.com/cpacia/proxyclient"
 	iwallet "github.com/cpacia/wallet-interface"
+	"github.com/gcash/bchd/chaincfg/chainhash"
 	"io/ioutil"
 	"math/rand"
 	"net/http"
@@ -436,7 +437,7 @@ func buildTransaction(transaction *transaction, ct iwallet.CoinType) (iwallet.Tr
 	}
 
 	for _, in := range transaction.Vin {
-		prevHash, err := hex.DecodeString(in.PrevHash)
+		prevHash, err := chainhash.NewHashFromStr(in.PrevHash)
 		if err != nil {
 			return tx, err
 		}
@@ -455,7 +456,7 @@ func buildTransaction(transaction *transaction, ct iwallet.CoinType) (iwallet.Tr
 		}
 
 		id := make([]byte, 36)
-		copy(id[:32], prevHash)
+		copy(id[:32], prevHash[:])
 		copy(id[32:], index)
 
 		from := iwallet.SpendInfo{

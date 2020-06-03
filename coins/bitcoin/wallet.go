@@ -122,7 +122,7 @@ func (w *BitcoinWallet) EstimateSpendFee(amount iwallet.Amount, feeLevel iwallet
 				if err != nil {
 					return err
 				}
-				op, err := derializeOutpoint(ser)
+				op, err := deserializeOutpoint(ser)
 				if err != nil {
 					return err
 				}
@@ -394,7 +394,7 @@ func (w *BitcoinWallet) SignMultisigTransaction(txn iwallet.Transaction, key btc
 	var sigs []iwallet.EscrowSignature
 	tx := wire.NewMsgTx(1)
 	for _, from := range txn.From {
-		op, err := derializeOutpoint(from.ID)
+		op, err := deserializeOutpoint(from.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -441,7 +441,7 @@ func (w *BitcoinWallet) SignMultisigTransaction(txn iwallet.Transaction, key btc
 func (w *BitcoinWallet) BuildAndSend(wtx iwallet.Tx, txn iwallet.Transaction, signatures [][]iwallet.EscrowSignature, redeemScript []byte) (iwallet.TransactionID, error) {
 	tx := wire.NewMsgTx(1)
 	for _, from := range txn.From {
-		op, err := derializeOutpoint(from.ID)
+		op, err := deserializeOutpoint(from.ID)
 		if err != nil {
 			return iwallet.TransactionID(""), err
 		}
@@ -576,7 +576,7 @@ func (w *BitcoinWallet) CreateMultisigWithTimeout(keys []btcec.PublicKey, thresh
 func (w *BitcoinWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet.Transaction, timeoutKey btcec.PrivateKey, redeemScript []byte) (iwallet.TransactionID, error) {
 	tx := wire.NewMsgTx(2)
 	for _, from := range txn.From {
-		op, err := derializeOutpoint(from.ID)
+		op, err := deserializeOutpoint(from.ID)
 		if err != nil {
 			return iwallet.TransactionID(""), err
 		}
@@ -855,7 +855,7 @@ func lockTimeFromRedeemScript(redeemScript []byte) (uint32, error) {
 	return uint32(result), nil
 }
 
-func derializeOutpoint(ser []byte) (*wire.OutPoint, error) {
+func deserializeOutpoint(ser []byte) (*wire.OutPoint, error) {
 	h, err := chainhash.NewHash(ser[:32])
 	if err != nil {
 		return nil, err
