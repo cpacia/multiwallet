@@ -15,7 +15,7 @@ require (
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.0.0
 	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/cpacia/proxyclient v0.0.0-20191212063311-f03265f1fade
-	github.com/cpacia/wallet-interface v0.0.0-20200601142221-bffc35be13b2
+	github.com/cpacia/wallet-interface v0.0.0-20200604163334-1be951c8f4bd
 	github.com/dchest/blake256 v1.1.0 // indirect
 	github.com/ethereum/go-ethereum v1.9.10-0.20200106112538-7a509b47321a
 	github.com/gcash/bchd v0.15.3-0.20200229013353-8c1fa57b15e7
