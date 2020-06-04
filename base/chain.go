@@ -634,6 +634,7 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 	for _, addr := range addrs {
 		addrMap[addr] = true
 	}
+
 	err = cm.db.Update(func(dbtx database.Tx) error {
 		// First load all the transactions from the db.
 		var savedTxs []database.TransactionRecord
@@ -701,7 +702,9 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 				numNew++
 				newOrUpdated = append(newOrUpdated, tx)
 				if tx.Height == 0 {
-					cm.msgChan <- &addUnconfirmed{tx: tx}
+					go func() {
+						cm.msgChan <- &addUnconfirmed{tx: tx}
+					}()
 				}
 			} else if !relevant {
 				// Not relevant transactions must be watch-only since they made
