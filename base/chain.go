@@ -266,8 +266,33 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 				cm.logger.Errorf("[%s] Error updating database with new block height: %s", cm.coinType, err)
 			}
 			if previousBest.BlockID.String() != blockInfo.PrevBlock.String() {
-				// Possible reorg detected. Trigger a rescan from genesis to make
-				// sure our state is up to date.
+				// Possible reorg detected. Delete all transactions and trigger a
+				// rescan from genesis to make sure our state is up to date.
+				err := cm.db.Update(func(tx database.Tx) error {
+					var savedTxs []database.TransactionRecord
+					if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedTxs).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
+						return err
+					}
+					for _, rec := range savedTxs {
+						if err := tx.Delete("txid", rec.Txid, &database.TransactionRecord{}); err != nil {
+							return err
+						}
+					}
+					var savedUtxos []database.UtxoRecord
+					if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedUtxos).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
+						return err
+					}
+					for _, rec := range savedUtxos {
+						if err := tx.Delete("outpoint", rec.Outpoint, &database.UtxoRecord{}); err != nil {
+							return err
+						}
+					}
+					return nil
+				})
+				if err != nil {
+					cm.logger.Errorf("[%s] Error deleting transactions during reorg: %s", cm.coinType, err)
+				}
+
 				go func() {
 					cm.logger.Debugf("[%s] Possible reorg. Re-scanning transactions", cm.coinType)
 					errChan := make(chan error)

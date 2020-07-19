@@ -2,6 +2,7 @@ package base
 
 import (
 	"encoding/json"
+	"errors"
 	"github.com/cpacia/proxyclient"
 	iwallet "github.com/cpacia/wallet-interface"
 	"math"
@@ -39,6 +40,9 @@ func NewHardCodedFeeProvider(Priority, Normal, Economic, SuperEconomic iwallet.A
 func (fp *HardCodedFeeProvider) GetFee(level iwallet.FeeLevel) (iwallet.Amount, error) {
 	fee, ok := fp.feeMap[level]
 	if !ok {
+		if int(level) < 0 {
+			return iwallet.NewAmount(0), errors.New("negative fee")
+		}
 		return iwallet.NewAmount(int(level)), nil
 	}
 	return fee, nil
@@ -74,6 +78,9 @@ func (fp *APIFeeProvider) GetFee(level iwallet.FeeLevel) (iwallet.Amount, error)
 	fromCache := func() (iwallet.Amount, error) {
 		fee, ok := fp.cache[level]
 		if !ok {
+			if int(level) < 0 {
+				return iwallet.NewAmount(0), errors.New("negative fee")
+			}
 			return iwallet.NewAmount(int(level)), nil
 		}
 		if fee.Cmp(fp.maxFee) > 0 {
@@ -144,6 +151,9 @@ func NewExchangeRateFeeProvider(coinType iwallet.CoinType, divisibility int, erp
 func (fp *ExchangeRateFeeProvider) GetFee(level iwallet.FeeLevel) (iwallet.Amount, error) {
 	target, ok := fp.targetMap[level]
 	if !ok {
+		if int(level) < 0 {
+			return iwallet.NewAmount(0), errors.New("negative fee")
+		}
 		return iwallet.NewAmount(int(level)), nil
 	}
 

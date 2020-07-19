@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/btcsuite/btcd/btcec"
@@ -302,7 +303,11 @@ func (w *EthereumWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.A
 		}
 		txhash = iwallet.TransactionID(signedTx.Hash().String())
 		broadcastFunc = func() error {
-			return w.client.RPC.SendTransaction(context.Background(), signedTx)
+			ser, err := json.Marshal(signedTx)
+			if err != nil {
+				return err
+			}
+			return w.client.Broadcast(ser)
 		}
 	} else if strings.HasPrefix(to.String(), "0x") && len(to.String()) == 82 { // Sending to a direct address
 		data, err := hex.DecodeString(strings.TrimPrefix(to.String(), "0x"))
@@ -317,7 +322,11 @@ func (w *EthereumWallet) Spend(wtx iwallet.Tx, to iwallet.Address, amt iwallet.A
 		txhash = iwallet.TransactionID(signedTx.Hash().String())
 
 		broadcastFunc = func() error {
-			return w.client.RPC.SendTransaction(context.Background(), signedTx)
+			ser, err := json.Marshal(signedTx)
+			if err != nil {
+				return err
+			}
+			return w.client.Broadcast(ser)
 		}
 	} else if strings.HasPrefix(to.String(), "0x") && len(to.String()) == 66 { // Sending to an escrow address
 		var rec database.WatchedAddressRecord
