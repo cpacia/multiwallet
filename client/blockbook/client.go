@@ -10,6 +10,7 @@ import (
 	gosocketio "github.com/OpenBazaar/golang-socketio"
 	"github.com/OpenBazaar/golang-socketio/protocol"
 	"github.com/btcsuite/btcutil"
+	"github.com/cenkalti/backoff"
 	"github.com/cpacia/multiwallet/base"
 	"github.com/cpacia/proxyclient"
 	iwallet "github.com/cpacia/wallet-interface"
@@ -24,6 +25,11 @@ import (
 	"time"
 )
 
+type transactionSub struct {
+	sub *base.TransactionSubscription
+	addrs map[string]bool
+}
+
 const RequestTimeout = time.Second * 30
 
 // BlockbookClient is a blockbook client that connects to the blockbook
@@ -35,8 +41,9 @@ type BlockbookClient struct {
 	coinType  iwallet.CoinType
 	subMtx    sync.Mutex
 	started   uint32
+	stopped   uint32
 	shutdown  chan struct{}
-	txSubs    map[int32]*base.TransactionSubscription
+	txSubs    map[int32]*transactionSub
 	blockSubs map[int32]*base.BlockSubscription
 }
 
@@ -53,7 +60,7 @@ func NewBlockbookClient(url string, coinType iwallet.CoinType) (*BlockbookClient
 		coinType:  coinType,
 		shutdown:  make(chan struct{}),
 		subMtx:    sync.Mutex{},
-		txSubs:    make(map[int32]*base.TransactionSubscription),
+		txSubs:    make(map[int32]*transactionSub),
 		blockSubs: make(map[int32]*base.BlockSubscription),
 	}
 	return client, nil
@@ -237,8 +244,10 @@ func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.
 	}
 
 	addrStrs := make([]string, 0, len(addrs))
+	addrMap := make(map[string]bool, len(addrStrs))
 	for _, addr := range addrs {
 		addrStrs = append(addrStrs, addr.String())
+		addrMap[addr.String()] = true
 	}
 
 	args := []interface{}{
@@ -251,7 +260,10 @@ func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.
 	}
 
 	id := rand.Int31()
-	c.txSubs[id] = sub
+	c.txSubs[id] = &transactionSub{
+		sub: sub,
+		addrs: addrMap,
+	}
 
 	subClose := make(chan struct{})
 
@@ -274,6 +286,7 @@ func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.
 				addrStrs := make([]string, 0, len(addrs))
 				for _, addr := range addrs {
 					addrStrs = append(addrStrs, addr.String())
+					addrMap[addr.String()] = true
 				}
 				args := []interface{}{
 					"bitcoind/addresstxid",
@@ -342,6 +355,28 @@ func (c *BlockbookClient) Open() error {
 	if err != nil {
 		return err
 	}
+	err = socket.On(gosocketio.OnError, func(h *gosocketio.Channel, args interface{}) {
+		if atomic.LoadUint32(&c.stopped) == 0 {
+			backoff.Retry(func()error{
+				return c.Open()
+			}, backoff.NewExponentialBackOff())
+			socket.Close()
+		}
+	})
+	if err != nil {
+		return err
+	}
+	err = socket.On(gosocketio.OnDisconnection, func(h *gosocketio.Channel) {
+		if atomic.LoadUint32(&c.stopped) == 0 {
+			backoff.Retry(func()error{
+				return c.Open()
+			}, backoff.NewExponentialBackOff())
+			socket.Close()
+		}
+	})
+	if err != nil {
+		return err
+	}
 	err = socket.On("bitcoind/addresstxid", func(h *gosocketio.Channel, arg interface{}) {
 		m, ok := arg.(map[string]interface{})
 		if !ok {
@@ -356,7 +391,22 @@ func (c *BlockbookClient) Open() error {
 			if err == nil {
 				c.subMtx.Lock()
 				for _, sub := range c.txSubs {
-					sub.Out <- tx
+					matches := false
+					for _, from := range tx.From {
+						if sub.addrs[from.Address.String()] {
+							matches = true
+							break
+						}
+					}
+					for _, to := range tx.To {
+						if sub.addrs[to.Address.String()] {
+							matches = true
+							break
+						}
+					}
+					if matches {
+						sub.sub.Out <- tx
+					}
 				}
 				c.subMtx.Unlock()
 			}
@@ -381,6 +431,25 @@ func (c *BlockbookClient) Open() error {
 		socket.Close()
 		return err
 	}
+
+	var addrStrs []string
+	c.subMtx.Lock()
+	for _, sub := range c.txSubs {
+		for addr := range sub.addrs {
+			addrStrs = append(addrStrs, addr)
+		}
+	}
+	c.subMtx.Unlock()
+	if len(addrStrs) > 0 {
+		args := []interface{}{
+			"bitcoind/addresstxid",
+			addrStrs,
+		}
+		if err := c.socket.Emit("subscribe", args); err != nil {
+			return err
+		}
+	}
+
 	c.socket = socket
 	atomic.AddUint32(&c.started, 1)
 	return nil
@@ -391,6 +460,7 @@ func (c *BlockbookClient) Close() error {
 	defer c.subMtx.Unlock()
 
 	close(c.shutdown)
+	atomic.AddUint32(&c.stopped, 1)
 	if c.socket != nil {
 		c.socket.Close()
 	}
