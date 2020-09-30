@@ -26,7 +26,7 @@ import (
 )
 
 type transactionSub struct {
-	sub *base.TransactionSubscription
+	sub   *base.TransactionSubscription
 	addrs map[string]bool
 }
 
@@ -34,10 +34,10 @@ const RequestTimeout = time.Second * 30
 
 // BlockbookClient is a blockbook client that connects to the blockbook
 // server which supports multiple coins.
-type BlockbookClient struct {
+type BlockbookClient struct { // nolint
 	client    *http.Client
 	socket    *gosocketio.Client
-	clientUrl string
+	clientURL string
 	coinType  iwallet.CoinType
 	subMtx    sync.Mutex
 	started   uint32
@@ -56,7 +56,7 @@ func NewBlockbookClient(url string, coinType iwallet.CoinType) (*BlockbookClient
 
 	client := &BlockbookClient{
 		client:    httpClient,
-		clientUrl: url,
+		clientURL: url,
 		coinType:  coinType,
 		shutdown:  make(chan struct{}),
 		subMtx:    sync.Mutex{},
@@ -82,7 +82,7 @@ func (c *BlockbookClient) GetBlockchainInfo() (iwallet.BlockInfo, error) {
 		} `json:"backend"`
 	}
 
-	resp, err := c.client.Get(c.clientUrl)
+	resp, err := c.client.Get(c.clientURL)
 	if err != nil {
 		return iwallet.BlockInfo{}, err
 	}
@@ -102,7 +102,7 @@ func (c *BlockbookClient) GetBlockchainInfo() (iwallet.BlockInfo, error) {
 		Hash string `json:"blockHash"`
 	}
 
-	resp, err = c.client.Get(c.clientUrl + "/block-index/" + strconv.Itoa(info.Backend.BestHeight-1))
+	resp, err = c.client.Get(c.clientURL + "/block-index/" + strconv.Itoa(info.Backend.BestHeight-1))
 	if err != nil {
 		return iwallet.BlockInfo{}, err
 	}
@@ -164,11 +164,11 @@ func (c *BlockbookClient) GetAddressTransactions(addr iwallet.Address, fromHeigh
 	wg.Add(len(ids.Result))
 
 	for _, id := range ids.Result {
-		go func() {
-			tx, err := c.GetTransaction(iwallet.TransactionID(id))
+		go func(strID string) {
+			tx, err := c.GetTransaction(iwallet.TransactionID(strID))
 			ch <- txOrError{tx, err}
 			wg.Done()
-		}()
+		}(id)
 	}
 
 	wg.Wait()
@@ -186,7 +186,7 @@ func (c *BlockbookClient) GetAddressTransactions(addr iwallet.Address, fromHeigh
 }
 
 func (c *BlockbookClient) GetTransaction(id iwallet.TransactionID) (iwallet.Transaction, error) {
-	resp, err := c.client.Get(c.clientUrl + "/tx/" + id.String())
+	resp, err := c.client.Get(c.clientURL + "/tx/" + id.String())
 	if err != nil {
 		return iwallet.Transaction{}, err
 	}
@@ -210,7 +210,7 @@ func (c *BlockbookClient) IsBlockInMainChain(block iwallet.BlockInfo) (bool, err
 		Hash string `json:"blockHash"`
 	}
 
-	resp, err := c.client.Get(c.clientUrl + "/block-index/" + strconv.Itoa(int(block.Height)))
+	resp, err := c.client.Get(c.clientURL + "/block-index/" + strconv.Itoa(int(block.Height)))
 	if err != nil {
 		return false, err
 	}
@@ -261,7 +261,7 @@ func (c *BlockbookClient) SubscribeTransactions(addrs []iwallet.Address) (*base.
 
 	id := rand.Int31()
 	c.txSubs[id] = &transactionSub{
-		sub: sub,
+		sub:   sub,
 		addrs: addrMap,
 	}
 
@@ -329,7 +329,7 @@ func (c *BlockbookClient) SubscribeBlocks() (*base.BlockSubscription, error) {
 }
 
 func (c *BlockbookClient) Broadcast(serializedTx []byte) error {
-	resp, err := c.client.Post(c.clientUrl+"/sendtx/", "text/plain", bytes.NewReader([]byte(hex.EncodeToString(serializedTx))))
+	resp, err := c.client.Post(c.clientURL+"/sendtx/", "text/plain", bytes.NewReader([]byte(hex.EncodeToString(serializedTx))))
 	if err != nil {
 		return err
 	}
@@ -345,19 +345,19 @@ func (c *BlockbookClient) Broadcast(serializedTx []byte) error {
 }
 
 func (c *BlockbookClient) Open() error {
-	var socketUrl string
-	if strings.HasPrefix(c.clientUrl, "https") {
-		socketUrl = strings.Replace(strings.TrimSuffix(c.clientUrl, "/api"), "https://", "wss://", 1)
-	} else if strings.HasPrefix(c.clientUrl, "http") {
-		socketUrl = strings.Replace(strings.TrimSuffix(c.clientUrl, "/api"), "http://", "ws://", 1)
+	var socketURL string
+	if strings.HasPrefix(c.clientURL, "https") {
+		socketURL = strings.Replace(strings.TrimSuffix(c.clientURL, "/api"), "https://", "wss://", 1)
+	} else if strings.HasPrefix(c.clientURL, "http") {
+		socketURL = strings.Replace(strings.TrimSuffix(c.clientURL, "/api"), "http://", "ws://", 1)
 	}
-	socket, err := gosocketio.Dial(socketUrl+"/socket.io/", GetDefaultWebsocketTransport())
+	socket, err := gosocketio.Dial(socketURL+"/socket.io/", GetDefaultWebsocketTransport())
 	if err != nil {
 		return err
 	}
 	err = socket.On(gosocketio.OnError, func(h *gosocketio.Channel, args interface{}) {
 		if atomic.LoadUint32(&c.stopped) == 0 {
-			backoff.Retry(func()error{
+			backoff.Retry(func() error {
 				return c.Open()
 			}, backoff.NewExponentialBackOff())
 			socket.Close()
@@ -368,7 +368,7 @@ func (c *BlockbookClient) Open() error {
 	}
 	err = socket.On(gosocketio.OnDisconnection, func(h *gosocketio.Channel) {
 		if atomic.LoadUint32(&c.stopped) == 0 {
-			backoff.Retry(func()error{
+			backoff.Retry(func() error {
 				return c.Open()
 			}, backoff.NewExponentialBackOff())
 			socket.Close()

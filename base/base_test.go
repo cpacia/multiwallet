@@ -405,7 +405,7 @@ func TestWalletBase_ChangeRemovePassphrase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := w.Unlock(pw2, time.Second); err != nil {
+	if err := w.Unlock(pw2, time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 

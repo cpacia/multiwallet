@@ -113,7 +113,7 @@ func TestKeychain_EncryptDecrypt(t *testing.T) {
 		t.Errorf("Expected decryption error got nil")
 	}
 
-	if err := keychain.Unlock(pw, time.Second); err != nil {
+	if err := keychain.Unlock(pw, time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 
@@ -177,7 +177,7 @@ func TestKeychain_ChangeRemovePassphrase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := keychain.Unlock(pw2, time.Second); err != nil {
+	if err := keychain.Unlock(pw2, time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
 

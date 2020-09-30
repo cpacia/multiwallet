@@ -11,8 +11,8 @@ import (
 	"github.com/cpacia/multiwallet/database"
 	iwallet "github.com/cpacia/wallet-interface"
 	"github.com/gcash/bchd/wire"
-	"github.com/jinzhu/gorm"
 	"github.com/op/go-logging"
+	"gorm.io/gorm"
 	"strings"
 	"sync"
 	"time"
@@ -26,8 +26,8 @@ type WalletConfig struct {
 	DB                   database.Database
 	Logger               *logging.Logger
 	Testnet              bool
-	ClientUrl            string
-	FeeUrl               string
+	ClientURL            string
+	FeeURL               string
 	ExchangeRateProvider ExchangeRateProvider
 }
 
@@ -74,7 +74,7 @@ type subscription struct {
 // WalletBase is a base class that wallets can extended by the individual
 // wallets. It contains a little over half the interface methods so the only
 // remaining methods that need to be implemented by each coin's package are
-// the method's specific to signing and building transactions.
+// the methods specific to signing and building transactions.
 type WalletBase struct {
 	ChainManager *ChainManager
 	ChainClient  ChainClient
@@ -104,9 +104,9 @@ func (w *WalletBase) Begin() (iwallet.Tx, error) {
 func (w *WalletBase) WalletExists() bool {
 	err := w.DB.View(func(tx database.Tx) error {
 		var rec database.CoinRecord
-		return tx.Read().Where("coin = ?", w.CoinType.CurrencyCode()).Find(&rec).Error
+		return tx.Read().Where("coin = ?", w.CoinType.CurrencyCode()).First(&rec).Error
 	})
-	return err == nil
+	return !errors.Is(err, gorm.ErrRecordNotFound)
 }
 
 // CreateWallet should initialize the wallet. This will be called by
@@ -133,9 +133,9 @@ func (w *WalletBase) CreateWallet(xpriv hd.ExtendedKey, pw []byte, birthday time
 
 	err = w.DB.View(func(tx database.Tx) error {
 		var rec database.CoinRecord
-		return tx.Read().Where("coin = ?", w.CoinType.CurrencyCode()).Find(&rec).Error
+		return tx.Read().Where("coin = ?", w.CoinType.CurrencyCode()).First(&rec).Error
 	})
-	if err != nil && !gorm.IsRecordNotFoundError(err) {
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	} else if err == nil {
 		return fmt.Errorf("wallet already exists for coin %s", w.CoinType.CurrencyCode())
@@ -402,7 +402,7 @@ func (w *WalletBase) Balance() (unconfirmed iwallet.Amount, confirmed iwallet.Am
 			return err
 		}
 		err = dbtx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Find(&txRecords).Error
-		if err != nil && !gorm.IsRecordNotFoundError(err) {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 
@@ -427,9 +427,9 @@ func (w *WalletBase) Balance() (unconfirmed iwallet.Amount, confirmed iwallet.Am
 		}
 		return nil
 	})
-	if err != nil && !gorm.IsRecordNotFoundError(err) {
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return
-	} else if gorm.IsRecordNotFoundError(err) {
+	} else if errors.Is(err, gorm.ErrRecordNotFound) {
 		return unconfirmed, confirmed, nil
 	}
 	return unconfirmed, confirmed, nil

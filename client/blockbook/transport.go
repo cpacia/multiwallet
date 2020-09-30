@@ -22,11 +22,11 @@ const (
 )
 
 var (
-	ErrorBinaryMessage     = errors.New("binary messages are not supported")
-	ErrorBadBuffer         = errors.New("buffer error")
-	ErrorPacketWrong       = errors.New("wrong packet type error")
-	ErrorMethodNotAllowed  = errors.New("method not allowed")
-	ErrorHttpUpgradeFailed = errors.New("http upgrade failed")
+	ErrBinaryMessage     = errors.New("binary messages are not supported")
+	ErrBadBuffer         = errors.New("buffer error")
+	ErrPacketWrong       = errors.New("wrong packet type error")
+	ErrMethodNotAllowed  = errors.New("method not allowed")
+	ErrHTTPUpgradeFailed = errors.New("http upgrade failed")
 )
 
 type WebsocketConnection struct {
@@ -43,18 +43,18 @@ func (wsc *WebsocketConnection) GetMessage() (message string, err error) {
 
 	//support only text messages exchange
 	if msgType != websocket.TextMessage {
-		return "", ErrorBinaryMessage
+		return "", ErrBinaryMessage
 	}
 
 	data, err := ioutil.ReadAll(reader)
 	if err != nil {
-		return "", ErrorBadBuffer
+		return "", ErrBadBuffer
 	}
 	text := string(data)
 
 	//empty messages are not allowed
 	if len(text) == 0 {
-		return "", ErrorPacketWrong
+		return "", ErrPacketWrong
 	}
 
 	return text, nil
@@ -114,14 +114,14 @@ func (wst *WebsocketTransport) HandleConnection(
 	w http.ResponseWriter, r *http.Request) (conn tp.Connection, err error) {
 
 	if r.Method != "GET" {
-		http.Error(w, upgradeFailed+ErrorMethodNotAllowed.Error(), 503)
-		return nil, ErrorMethodNotAllowed
+		http.Error(w, upgradeFailed+ErrMethodNotAllowed.Error(), 503)
+		return nil, ErrMethodNotAllowed
 	}
 
 	socket, err := websocket.Upgrade(w, r, nil, wst.BufferSize, wst.BufferSize)
 	if err != nil {
 		http.Error(w, upgradeFailed+err.Error(), 503)
-		return nil, ErrorHttpUpgradeFailed
+		return nil, ErrHTTPUpgradeFailed
 	}
 
 	return &WebsocketConnection{socket, wst}, nil

@@ -21,7 +21,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 	ethc "github.com/ethereum/go-ethereum/ethclient"
 	"github.com/gcash/bchutil"
-	"github.com/jinzhu/gorm"
+	"gorm.io/gorm"
 	"math/big"
 	"sort"
 	"strings"
@@ -48,7 +48,7 @@ const (
 
 // EthereumWallet extends wallet base and implements the
 // remaining functions for each interface.
-type EthereumWallet struct {
+type EthereumWallet struct { // nolint
 	base.WalletBase
 	testnet  bool
 	client   *ethclient.EthClient
@@ -91,7 +91,7 @@ func NewEthereumWallet(cfg *base.WalletConfig) (*EthereumWallet, error) {
 		return &v.Implementation, nil
 	}
 
-	client, err := ethclient.NewEthClient(cfg.ClientUrl, "https://eth1.trezor.io/api", createRegistry)
+	client, err := ethclient.NewEthClient(cfg.ClientURL, "https://eth1.trezor.io/api", createRegistry)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (w *EthereumWallet) Balance() (unconfirmed iwallet.Amount, confirmed iwalle
 	err = w.DB.View(func(dbtx database.Tx) error {
 		var txs []database.TransactionRecord
 		err := dbtx.Read().Where("coin=?", w.CoinType.CurrencyCode()).Find(&txs).Error
-		if err != nil && !gorm.IsRecordNotFoundError(err) {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		for _, rec := range txs {

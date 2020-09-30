@@ -1,10 +1,11 @@
 package base
 
 import (
+	"errors"
 	"github.com/cpacia/multiwallet/database"
 	iwallet "github.com/cpacia/wallet-interface"
-	"github.com/jinzhu/gorm"
 	"github.com/op/go-logging"
+	"gorm.io/gorm"
 )
 
 // Rebroadcaster handles rebroadcasting unconfirmed transactions.
@@ -45,7 +46,7 @@ func (r *Rebroadcaster) rebroadcast() {
 	err := r.db.View(func(tx database.Tx) error {
 		return tx.Read().Where("coin=?", r.coinType.CurrencyCode()).Find(&unconf).Error
 	})
-	if err != nil && !gorm.IsRecordNotFoundError(err) {
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		r.logger.Errorf("Error loading unconfirmed txs for rebroadcast: %s", err)
 		return
 	}

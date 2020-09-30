@@ -6,8 +6,8 @@ import (
 	expbackoff "github.com/cenkalti/backoff"
 	"github.com/cpacia/multiwallet/database"
 	iwallet "github.com/cpacia/wallet-interface"
-	"github.com/jinzhu/gorm"
 	"github.com/op/go-logging"
+	"gorm.io/gorm"
 	"sync"
 	"time"
 )
@@ -105,12 +105,12 @@ func (cm *ChainManager) Start() error {
 		}
 
 		err := tx.Read().Where("coin=?", cm.coinType).Find(&watchAddresses).Error
-		if err != nil && !gorm.IsRecordNotFoundError(err) {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 
 		err = tx.Read().Where("coin=?", cm.coinType).Where("block_height=?", 0).Find(&unconfirmed).Error
-		if err != nil && !gorm.IsRecordNotFoundError(err) {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		return nil
@@ -270,7 +270,7 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 				// rescan from genesis to make sure our state is up to date.
 				err := cm.db.Update(func(tx database.Tx) error {
 					var savedTxs []database.TransactionRecord
-					if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedTxs).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
+					if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedTxs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 						return err
 					}
 					for _, rec := range savedTxs {
@@ -279,7 +279,7 @@ func (cm *ChainManager) chainHandler(transactionSub *TransactionSubscription, bl
 						}
 					}
 					var savedUtxos []database.UtxoRecord
-					if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedUtxos).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
+					if err := tx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedUtxos).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 						return err
 					}
 					for _, rec := range savedUtxos {
@@ -418,7 +418,7 @@ func (cm *ChainManager) ScanTransactions(fromHeight uint64) {
 	// should be.
 	err := cm.db.Update(func(dbtx database.Tx) error {
 		var savedTxs []database.TransactionRecord
-		if err := dbtx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedTxs).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
+		if err := dbtx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedTxs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		for _, rec := range savedTxs {
@@ -595,7 +595,7 @@ func (cm *ChainManager) updateUnconfirmed(unconfirmed map[iwallet.TransactionID]
 					if err := tx.Save(&newRecord); err != nil {
 						cm.logger.Errorf("[%s] Error updating unconfirmed transaction %s: %s", cm.coinType, resp.ID, err)
 					}
-				} else if !gorm.IsRecordNotFoundError(err) {
+				} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 					cm.logger.Errorf("[%s] Error loading unconfirmed transaction %s: %s", cm.coinType, resp.ID, err)
 				}
 
@@ -607,7 +607,7 @@ func (cm *ChainManager) updateUnconfirmed(unconfirmed map[iwallet.TransactionID]
 						if err := tx.Save(&utxo); err != nil {
 							cm.logger.Errorf("[%s] Error updating unconfirmed utxo %s: %s", cm.coinType, resp.ID, err)
 						}
-					} else if !gorm.IsRecordNotFoundError(err) {
+					} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 						cm.logger.Errorf("[%s] Error loading unconfirmed utxo %s: %s", cm.coinType, resp.ID, err)
 					}
 				}
@@ -663,7 +663,7 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 	err = cm.db.Update(func(dbtx database.Tx) error {
 		// First load all the transactions from the db.
 		var savedTxs []database.TransactionRecord
-		if err := dbtx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedTxs).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
+		if err := dbtx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedTxs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 
@@ -784,16 +784,14 @@ func (cm *ChainManager) saveTransactionsAndUtxos(newTxs []iwallet.Transaction) (
 
 			for _, from := range tx.From {
 				outpoint := hex.EncodeToString(from.ID)
-				if _, ok := utxos[outpoint]; ok {
-					delete(utxos, outpoint)
-				}
+				delete(utxos, outpoint)
 			}
 		}
 
 		// Now lets load current utxos from the database. We want to delete any utxos
 		// from the db that are not in our calculated set.
 		var savedUtxos []database.UtxoRecord
-		if err := dbtx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedUtxos).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
+		if err := dbtx.Read().Where("coin=?", cm.coinType.CurrencyCode()).Find(&savedUtxos).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 

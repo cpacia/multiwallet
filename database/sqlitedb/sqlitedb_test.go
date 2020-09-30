@@ -3,7 +3,7 @@ package sqlitedb
 import (
 	"errors"
 	"github.com/cpacia/multiwallet/database"
-	"github.com/jinzhu/gorm"
+	"gorm.io/gorm"
 	"testing"
 )
 
@@ -25,7 +25,7 @@ func TestSqliteDB_UpdateAndView(t *testing.T) {
 
 	var txs []database.TransactionRecord
 	err = db.View(func(tx database.Tx) error {
-		if err := tx.Read().Find(&txs).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
+		if err := tx.Read().Find(&txs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		return nil
@@ -52,7 +52,7 @@ func TestSqliteDB_UpdateAndView(t *testing.T) {
 
 	var txs2 []database.TransactionRecord
 	err = db.View(func(tx database.Tx) error {
-		if err := tx.Read().Find(&txs2).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
+		if err := tx.Read().Find(&txs2).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		return nil
@@ -91,7 +91,7 @@ func TestSqliteDB_Rollback(t *testing.T) {
 
 	var txs []database.TransactionRecord
 	err = db.View(func(tx database.Tx) error {
-		if err := tx.Read().Find(&txs).Error; err != nil && !gorm.IsRecordNotFoundError(err) {
+		if err := tx.Read().Find(&txs).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		return nil

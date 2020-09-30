@@ -25,11 +25,11 @@ import (
 func newTestWallet() (*BitcoinWallet, error) {
 	w := &BitcoinWallet{
 		testnet:     true,
-		feeUrl:      "https://btc.fees.openbazaar.org/",
+		feeURL:      "https://btc.fees.openbazaar.org/",
 		feeProvider: base.NewHardCodedFeeProvider(iwallet.NewAmount(50), iwallet.NewAmount(40), iwallet.NewAmount(30), iwallet.NewAmount(20)),
 	}
 
-	httpmock.RegisterResponder("GET", w.feeUrl,
+	httpmock.RegisterResponder("GET", w.feeURL,
 		httpmock.NewStringResponder(200, `{"priority": 50, "normal": 25, "economic": 12}`))
 
 	chainClient := base.NewMockChainClient()

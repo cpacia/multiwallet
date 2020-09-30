@@ -165,11 +165,11 @@ func (c *EthClient) GetAddressTransactions(addr iwallet.Address, fromHeight uint
 	wg.Add(len(ids.Result))
 
 	for _, id := range ids.Result {
-		go func() {
-			tx, err := c.GetTransaction(iwallet.TransactionID(id))
+		go func(strID string) {
+			tx, err := c.GetTransaction(iwallet.TransactionID(strID))
 			ch <- txOrError{tx, err}
 			wg.Done()
-		}()
+		}(id)
 	}
 
 	wg.Wait()
@@ -363,13 +363,13 @@ func (c *EthClient) Open() error {
 		return err
 	}
 
-	var socketUrl string
+	var socketURL string
 	if strings.HasPrefix(c.blockbookURL, "https") {
-		socketUrl = strings.Replace(strings.TrimSuffix(c.blockbookURL, "/api"), "https://", "wss://", 1)
+		socketURL = strings.Replace(strings.TrimSuffix(c.blockbookURL, "/api"), "https://", "wss://", 1)
 	} else if strings.HasPrefix(c.blockbookURL, "http") {
-		socketUrl = strings.Replace(strings.TrimSuffix(c.blockbookURL, "/api"), "http://", "ws://", 1)
+		socketURL = strings.Replace(strings.TrimSuffix(c.blockbookURL, "/api"), "http://", "ws://", 1)
 	}
-	socket, err := gosocketio.Dial(socketUrl+"/socket.io/", blockbook.GetDefaultWebsocketTransport())
+	socket, err := gosocketio.Dial(socketURL+"/socket.io/", blockbook.GetDefaultWebsocketTransport())
 	if err != nil {
 		return err
 	}

@@ -46,7 +46,7 @@ const (
 
 // BitcoinCashWallet extends wallet base and implements the
 // remaining functions for each interface.
-type BitcoinCashWallet struct {
+type BitcoinCashWallet struct { // nolint
 	base.WalletBase
 	testnet     bool
 	feeProvider base.FeeProvider
@@ -59,7 +59,7 @@ func NewBitcoinCashWallet(cfg *base.WalletConfig) (*BitcoinCashWallet, error) {
 		testnet: cfg.Testnet,
 	}
 
-	chainClient, err := bchd.NewBchdClient(cfg.ClientUrl)
+	chainClient, err := bchd.NewBchdClient(cfg.ClientURL)
 	if err != nil {
 		return nil, err
 	}
@@ -745,9 +745,8 @@ func (w *BitcoinCashWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet
 func (w *BitcoinCashWallet) params() *chaincfg.Params {
 	if w.testnet {
 		return &chaincfg.TestNet3Params
-	} else {
-		return &chaincfg.MainNetParams
 	}
+	return &chaincfg.MainNetParams
 }
 
 func (w *BitcoinCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Address, feeLevel iwallet.FeeLevel) (*wire.MsgTx, error) {

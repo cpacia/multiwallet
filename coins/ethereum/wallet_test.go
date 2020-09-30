@@ -14,8 +14,9 @@ import (
 )
 
 func TestEthereumWallet_CloseWallet(t *testing.T) {
+	// Fixme:
 	return
-	db, err := sqlitedb.NewMemoryDB()
+	db, err := sqlitedb.NewMemoryDB() // nolint
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +24,7 @@ func TestEthereumWallet_CloseWallet(t *testing.T) {
 		t.Fatal(err)
 	}
 	w, err := NewEthereumWallet(&base.WalletConfig{
-		ClientUrl: "https://mainnet.infura.io/v3/91c82af0169c4115940c76d331410749",
+		ClientURL: "https://mainnet.infura.io/v3/91c82af0169c4115940c76d331410749",
 		DB:        db,
 		Testnet:   false,
 		Logger:    logging.MustGetLogger("eth"),

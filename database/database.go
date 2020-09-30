@@ -1,6 +1,6 @@
 package database
 
-import "github.com/jinzhu/gorm"
+import "gorm.io/gorm"
 
 // Tx represents a database transaction.  It can either by read-only or
 // read-write.  The transaction provides access to a sql database interface

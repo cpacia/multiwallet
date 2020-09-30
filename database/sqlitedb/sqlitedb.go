@@ -4,8 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"github.com/cpacia/multiwallet/database"
-	"github.com/jinzhu/gorm"
-	_ "github.com/jinzhu/gorm/dialects/sqlite" // Import sqlite dialect
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+	"log"
+	"os"
 	"path"
 	"sync"
 )
@@ -14,7 +17,16 @@ const (
 	DatabaseName = "multiwallet.db"
 )
 
-var ErrReadOnly = errors.New("tx is read only")
+var (
+	ErrReadOnly = errors.New("tx is read only")
+
+	silentLogger = logger.New(
+		log.New(os.Stdout, "\r\n", log.LstdFlags),
+		logger.Config{
+			LogLevel: logger.Silent,
+		},
+	)
+)
 
 // SqliteDB is an implementation of the Database interface using
 // flat file store for the public data and a sqlite database.
@@ -25,7 +37,10 @@ type DB struct {
 
 // NewSqliteDB instantiates a new db which satisfies the Database interface.
 func NewSqliteDB(dataDir string) (database.Database, error) {
-	db, err := gorm.Open("sqlite3", path.Join(dataDir, DatabaseName))
+	db, err := gorm.Open(sqlite.Open(path.Join(dataDir, DatabaseName)), &gorm.Config{
+		AllowGlobalUpdate: true,
+		Logger:            silentLogger,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +50,10 @@ func NewSqliteDB(dataDir string) (database.Database, error) {
 // NewMemoryDB instantiates a new db which satisfies the Database interface.
 // The sqlite db will be held in memory.
 func NewMemoryDB() (database.Database, error) {
-	db, err := gorm.Open("sqlite3", ":memory:")
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{
+		AllowGlobalUpdate: true,
+		Logger:            silentLogger,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +105,7 @@ func (fdb *DB) Close() error {
 	fdb.mtx.Lock()
 	defer fdb.mtx.Unlock()
 
-	return fdb.db.Close()
+	return nil
 }
 
 type tx struct {
@@ -196,5 +214,5 @@ func (t *tx) Migrate(model interface{}) error {
 	if !t.isForWrites {
 		return ErrReadOnly
 	}
-	return t.dbtx.AutoMigrate(model).Error
+	return t.dbtx.AutoMigrate(model)
 }

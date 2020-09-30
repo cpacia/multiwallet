@@ -49,7 +49,7 @@ const (
 
 // LitecoinWallet extends wallet base and implements the
 // remaining functions for each interface.
-type LitecoinWallet struct {
+type LitecoinWallet struct { // nolint
 	base.WalletBase
 	testnet     bool
 	feeProvider base.FeeProvider
@@ -62,7 +62,7 @@ func NewLitecoinWallet(cfg *base.WalletConfig) (*LitecoinWallet, error) {
 		testnet: cfg.Testnet,
 	}
 
-	chainClient, err := blockbook.NewBlockbookClient(cfg.ClientUrl, iwallet.CtLitecoin)
+	chainClient, err := blockbook.NewBlockbookClient(cfg.ClientURL, iwallet.CtLitecoin)
 	if err != nil {
 		return nil, err
 	}
@@ -666,9 +666,8 @@ func (w *LitecoinWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet.Tr
 func (w *LitecoinWallet) params() *chaincfg.Params {
 	if w.testnet {
 		return &chaincfg.TestNet4Params
-	} else {
-		return &chaincfg.MainNetParams
 	}
+	return &chaincfg.MainNetParams
 }
 
 func (w *LitecoinWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Address, feeLevel iwallet.FeeLevel) (*wire.MsgTx, error) {

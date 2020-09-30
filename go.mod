@@ -48,6 +48,8 @@ require (
 	golang.org/x/sys v0.0.0-20200107162124-548cf772de50 // indirect
 	google.golang.org/grpc v1.25.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
+	gorm.io/driver/sqlite v1.1.3
+	gorm.io/gorm v1.20.2
 )
 
 replace (

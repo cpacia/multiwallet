@@ -24,9 +24,9 @@ import (
 // BchdClient is a Bitcoin Cash only client that uses the BCHD gRPC interface.
 // While BlockBook also works for Bitcoin Cash, BCHD tends to be faster, more
 // reliable, and has a better interface.
-type BchdClient struct {
+type BchdClient struct { // nolint
 	client    pb.BchrpcClient
-	clientUrl string
+	clientURL string
 	conn      *grpc.ClientConn
 	subMtx    sync.Mutex
 	started   uint32
@@ -39,7 +39,7 @@ type BchdClient struct {
 // Note this assumes the server is using a valid SSL certificate.
 func NewBchdClient(url string) (*BchdClient, error) {
 	return &BchdClient{
-		clientUrl: url,
+		clientURL: url,
 		subMtx:    sync.Mutex{},
 		shutdown:  make(chan struct{}),
 		txSubs:    make(map[int32]*base.TransactionSubscription),
@@ -352,7 +352,7 @@ func (c *BchdClient) Open() error {
 		opts = append(opts, grpc.WithContextDialer(dialContext))
 	}
 
-	conn, err := grpc.Dial(c.clientUrl, opts...)
+	conn, err := grpc.Dial(c.clientURL, opts...)
 	if err != nil {
 		return err
 	}

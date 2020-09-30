@@ -142,7 +142,7 @@ func NewExchangeRateFeeProvider(coinType iwallet.CoinType, divisibility int, erp
 		maxFee:             maxFeePerByte,
 		erp:                erp,
 		coinType:           coinType,
-		divisibility:       math.Pow10(int(divisibility)),
+		divisibility:       math.Pow10(divisibility),
 		avgTransactionSize: float64(avgTransactionSize),
 	}
 }

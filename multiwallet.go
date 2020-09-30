@@ -72,14 +72,14 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 	for _, coinType := range cfg.Wallets {
 		switch coinType {
 		case iwallet.CtBitcoinCash:
-			clientUrl := cfg.WalletAPIs[coinType].Mainnet
+			clientURL := cfg.WalletAPIs[coinType].Mainnet
 			if cfg.UseTestnet {
-				clientUrl = cfg.WalletAPIs[coinType].Testnet
+				clientURL = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := bitcoincash.NewBitcoinCashWallet(&base.WalletConfig{
 				Logger:    logger,
 				DB:        db,
-				ClientUrl: clientUrl,
+				ClientURL: clientURL,
 				Testnet:   cfg.UseTestnet,
 			})
 			if err != nil {
@@ -88,16 +88,16 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 
 			multiwallet[coinType] = w
 		case iwallet.CtBitcoin:
-			clientUrl := cfg.WalletAPIs[coinType].Mainnet
+			clientURL := cfg.WalletAPIs[coinType].Mainnet
 			if cfg.UseTestnet {
-				clientUrl = cfg.WalletAPIs[coinType].Testnet
+				clientURL = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := bitcoin.NewBitcoinWallet(&base.WalletConfig{
 				Logger:    logger,
 				DB:        db,
-				ClientUrl: clientUrl,
+				ClientURL: clientURL,
 				Testnet:   cfg.UseTestnet,
-				FeeUrl:    "https://btc.fees.openbazaar.org",
+				FeeURL:    "https://btc.fees.openbazaar.org",
 			})
 			if err != nil {
 				return nil, err
@@ -105,14 +105,14 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 
 			multiwallet[coinType] = w
 		case iwallet.CtLitecoin:
-			clientUrl := cfg.WalletAPIs[coinType].Mainnet
+			clientURL := cfg.WalletAPIs[coinType].Mainnet
 			if cfg.UseTestnet {
-				clientUrl = cfg.WalletAPIs[coinType].Testnet
+				clientURL = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := litecoin.NewLitecoinWallet(&base.WalletConfig{
 				Logger:    logger,
 				DB:        db,
-				ClientUrl: clientUrl,
+				ClientURL: clientURL,
 				Testnet:   cfg.UseTestnet,
 			})
 			if err != nil {
@@ -121,14 +121,14 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 
 			multiwallet[coinType] = w
 		case iwallet.CtZCash:
-			clientUrl := cfg.WalletAPIs[coinType].Mainnet
+			clientURL := cfg.WalletAPIs[coinType].Mainnet
 			if cfg.UseTestnet {
-				clientUrl = cfg.WalletAPIs[coinType].Testnet
+				clientURL = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := zcash.NewZCashWallet(&base.WalletConfig{
 				Logger:    logger,
 				DB:        db,
-				ClientUrl: clientUrl,
+				ClientURL: clientURL,
 				Testnet:   cfg.UseTestnet,
 			})
 			if err != nil {
@@ -137,14 +137,14 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 
 			multiwallet[coinType] = w
 		case iwallet.CtEthereum:
-			clientUrl := cfg.WalletAPIs[coinType].Mainnet
+			clientURL := cfg.WalletAPIs[coinType].Mainnet
 			if cfg.UseTestnet {
-				clientUrl = cfg.WalletAPIs[coinType].Testnet
+				clientURL = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := ethereum.NewEthereumWallet(&base.WalletConfig{
 				Logger:    logger,
 				DB:        db,
-				ClientUrl: clientUrl,
+				ClientURL: clientURL,
 				Testnet:   cfg.UseTestnet,
 			})
 			if err != nil {

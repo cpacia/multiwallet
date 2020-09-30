@@ -16,10 +16,10 @@ func TestBlockbookClient_GetBlockchainInfo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	httpmock.RegisterResponder("GET", client.clientUrl,
+	httpmock.RegisterResponder("GET", client.clientURL,
 		httpmock.NewStringResponder(200, `{"blockbook": {"lastBlockTime": "2019-12-27T03:48:06.17252601Z"}, "backend": {"blocks": 100000, "bestblockhash": "000000000000000000059db7d02e5a408dea5a55a44276fa89551749103590fa"}}`))
 
-	httpmock.RegisterResponder("GET", client.clientUrl+"/block-index/99999",
+	httpmock.RegisterResponder("GET", client.clientURL+"/block-index/99999",
 		httpmock.NewStringResponder(200, `{"blockHash": "00000000000000000003657bf1583f9f9ef196cb80bb3c72aeecbb22f3c581c4"}`))
 
 	httpmock.Activate()
@@ -53,7 +53,7 @@ func TestBlockbookClient_GetTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	httpmock.RegisterResponder("GET", client.clientUrl+"/tx/2a4cfac4cb8a322a31ac683bf6f2f05b6a5a1788af4e23a6a91a25fc7d891ce0",
+	httpmock.RegisterResponder("GET", client.clientURL+"/tx/2a4cfac4cb8a322a31ac683bf6f2f05b6a5a1788af4e23a6a91a25fc7d891ce0",
 		httpmock.NewStringResponder(200, `{"txid":"2a4cfac4cb8a322a31ac683bf6f2f05b6a5a1788af4e23a6a91a25fc7d891ce0","version":2,"locktime":609858,"vin":[{"txid":"88e9d70258ddcec90be40aa90990aadf6829f00cbd94643e084790ed6c57531a","vout":32,"sequence":4294967294,"n":0,"scriptSig":{"hex":"160014644c9d11c03ed7210afdaf1ee47c74d8869cd3a8"},"addresses":["3Fxe7hfikmEM4ATc2h5enZFLdKDpw8eZc7"],"value":"2.81414"}],"vout":[{"value":"0.872536","n":0,"scriptPubKey":{"hex":"a914c6c1ca62f2bf5180d36603cddfaa5ae4ed8c939c87","addresses":["3KowsLAQ2ZZ3FmwnBR8kiEzwnC2LqDNcmK"]},"spent":false},{"value":"1.9411","n":1,"scriptPubKey":{"hex":"76a91445c24214c06f7b2a2f69f883bf0c3c67250e901288ac","addresses":["17MrLXcJWnCbyJUXkvUeYeQEyQwYY5gMAU"]},"spent":false}],"blockhash":"00000000000000000003657bf1583f9f9ef196cb80bb3c72aeecbb22f3c581c4","blockheight":609951,"confirmations":4,"time":1577417904,"blocktime":1577417904,"valueOut":"2.813636","valueIn":"2.81414","fees":"0.000504","hex":"020000000001011a53576ced9047083e6494bd0cf02968dfaa9009a90ae40bc9cedd5802d7e9882000000017160014644c9d11c03ed7210afdaf1ee47c74d8869cd3a8feffffff02606233050000000017a914c6c1ca62f2bf5180d36603cddfaa5ae4ed8c939c8730e2910b000000001976a91445c24214c06f7b2a2f69f883bf0c3c67250e901288ac0247304402206779906ee2c3ec0776aa992c19a3d22c0c5b421908cf1c4f1f1a37d5c96643500220322414d13e08cd97c87f30820cba7e392cce27b700da9e071f7fa94ba3bdaa070121033eeb6faf4ef2207f025e19da3707eb73b514f2941ba9ca5b29d6f54617737b94424e0900"}`))
 
 	httpmock.Activate()
@@ -140,7 +140,7 @@ func TestBlockbookClient_GetAddressTransactions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	httpmock.RegisterResponder("GET", client.clientUrl+"/tx/2a4cfac4cb8a322a31ac683bf6f2f05b6a5a1788af4e23a6a91a25fc7d891ce0",
+	httpmock.RegisterResponder("GET", client.clientURL+"/tx/2a4cfac4cb8a322a31ac683bf6f2f05b6a5a1788af4e23a6a91a25fc7d891ce0",
 		httpmock.NewStringResponder(200, `{"txid":"2a4cfac4cb8a322a31ac683bf6f2f05b6a5a1788af4e23a6a91a25fc7d891ce0","version":2,"locktime":609858,"vin":[{"txid":"88e9d70258ddcec90be40aa90990aadf6829f00cbd94643e084790ed6c57531a","vout":32,"sequence":4294967294,"n":0,"scriptSig":{"hex":"160014644c9d11c03ed7210afdaf1ee47c74d8869cd3a8"},"addresses":["3Fxe7hfikmEM4ATc2h5enZFLdKDpw8eZc7"],"value":"2.81414"}],"vout":[{"value":"0.872536","n":0,"scriptPubKey":{"hex":"a914c6c1ca62f2bf5180d36603cddfaa5ae4ed8c939c87","addresses":["3KowsLAQ2ZZ3FmwnBR8kiEzwnC2LqDNcmK"]},"spent":false},{"value":"1.9411","n":1,"scriptPubKey":{"hex":"76a91445c24214c06f7b2a2f69f883bf0c3c67250e901288ac","addresses":["17MrLXcJWnCbyJUXkvUeYeQEyQwYY5gMAU"]},"spent":false}],"blockhash":"00000000000000000003657bf1583f9f9ef196cb80bb3c72aeecbb22f3c581c4","blockheight":609951,"confirmations":4,"time":1577417904,"blocktime":1577417904,"valueOut":"2.813636","valueIn":"2.81414","fees":"0.000504","hex":"020000000001011a53576ced9047083e6494bd0cf02968dfaa9009a90ae40bc9cedd5802d7e9882000000017160014644c9d11c03ed7210afdaf1ee47c74d8869cd3a8feffffff02606233050000000017a914c6c1ca62f2bf5180d36603cddfaa5ae4ed8c939c8730e2910b000000001976a91445c24214c06f7b2a2f69f883bf0c3c67250e901288ac0247304402206779906ee2c3ec0776aa992c19a3d22c0c5b421908cf1c4f1f1a37d5c96643500220322414d13e08cd97c87f30820cba7e392cce27b700da9e071f7fa94ba3bdaa070121033eeb6faf4ef2207f025e19da3707eb73b514f2941ba9ca5b29d6f54617737b94424e0900"}`))
 
 	httpmock.Activate()
@@ -170,7 +170,7 @@ func TestBlockbookClient_IsBlockInMainChain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	httpmock.RegisterResponder("GET", client.clientUrl+"/block-index/99999",
+	httpmock.RegisterResponder("GET", client.clientURL+"/block-index/99999",
 		httpmock.NewStringResponder(200, `{"blockHash": "00000000000000000003657bf1583f9f9ef196cb80bb3c72aeecbb22f3c581c4"}`))
 
 	httpmock.Activate()
@@ -185,7 +185,7 @@ func TestBlockbookClient_IsBlockInMainChain(t *testing.T) {
 		t.Errorf("Expected true, got false")
 	}
 
-	httpmock.RegisterResponder("GET", client.clientUrl+"/block-index/99999",
+	httpmock.RegisterResponder("GET", client.clientURL+"/block-index/99999",
 		httpmock.NewStringResponder(200, `{"blockHash": "00000000000000000003657bf1583f9f9ef196cb80bb3c72aeecbb22f3c581c4"}`))
 
 	inMain, err = client.IsBlockInMainChain(iwallet.BlockInfo{Height: 99999, BlockID: iwallet.BlockID("0000000000000000000fffffffffff9f9ef196cb80bb3c72aeecbb22f3c581c4")})
@@ -207,14 +207,14 @@ func TestBlockbookClient_Broadcast(t *testing.T) {
 	httpmock.Activate()
 	defer httpmock.Deactivate()
 
-	httpmock.RegisterResponder("POST", client.clientUrl+"/sendtx/",
+	httpmock.RegisterResponder("POST", client.clientURL+"/sendtx/",
 		httpmock.NewStringResponder(200, ``))
 
 	if err := client.Broadcast([]byte{0x00, 0x01, 0x02}); err != nil {
 		t.Fatal(err)
 	}
 
-	httpmock.RegisterResponder("POST", client.clientUrl+"/sendtx/",
+	httpmock.RegisterResponder("POST", client.clientURL+"/sendtx/",
 		httpmock.NewStringResponder(400, ``))
 
 	if err := client.Broadcast([]byte{0x00, 0x01, 0x02}); err == nil {
@@ -246,7 +246,7 @@ func TestBlockbookClient_SubscribeTransactions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	httpmock.RegisterResponder("GET", client.clientUrl+"/tx/2a4cfac4cb8a322a31ac683bf6f2f05b6a5a1788af4e23a6a91a25fc7d891ce0",
+	httpmock.RegisterResponder("GET", client.clientURL+"/tx/2a4cfac4cb8a322a31ac683bf6f2f05b6a5a1788af4e23a6a91a25fc7d891ce0",
 		httpmock.NewStringResponder(200, `{"txid":"2a4cfac4cb8a322a31ac683bf6f2f05b6a5a1788af4e23a6a91a25fc7d891ce0","version":2,"locktime":609858,"vin":[{"txid":"88e9d70258ddcec90be40aa90990aadf6829f00cbd94643e084790ed6c57531a","vout":32,"sequence":4294967294,"n":0,"scriptSig":{"hex":"160014644c9d11c03ed7210afdaf1ee47c74d8869cd3a8"},"addresses":["abc"],"value":"2.81414"}],"vout":[{"value":"0.872536","n":0,"scriptPubKey":{"hex":"a914c6c1ca62f2bf5180d36603cddfaa5ae4ed8c939c87","addresses":["3KowsLAQ2ZZ3FmwnBR8kiEzwnC2LqDNcmK"]},"spent":false},{"value":"1.9411","n":1,"scriptPubKey":{"hex":"76a91445c24214c06f7b2a2f69f883bf0c3c67250e901288ac","addresses":["17MrLXcJWnCbyJUXkvUeYeQEyQwYY5gMAU"]},"spent":false}],"blockhash":"00000000000000000003657bf1583f9f9ef196cb80bb3c72aeecbb22f3c581c4","blockheight":609951,"confirmations":4,"time":1577417904,"blocktime":1577417904,"valueOut":"2.813636","valueIn":"2.81414","fees":"0.000504","hex":"020000000001011a53576ced9047083e6494bd0cf02968dfaa9009a90ae40bc9cedd5802d7e9882000000017160014644c9d11c03ed7210afdaf1ee47c74d8869cd3a8feffffff02606233050000000017a914c6c1ca62f2bf5180d36603cddfaa5ae4ed8c939c8730e2910b000000001976a91445c24214c06f7b2a2f69f883bf0c3c67250e901288ac0247304402206779906ee2c3ec0776aa992c19a3d22c0c5b421908cf1c4f1f1a37d5c96643500220322414d13e08cd97c87f30820cba7e392cce27b700da9e071f7fa94ba3bdaa070121033eeb6faf4ef2207f025e19da3707eb73b514f2941ba9ca5b29d6f54617737b94424e0900"}`))
 
 	httpmock.Activate()
@@ -293,10 +293,10 @@ func TestBlockbookClient_SubscribeBlocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	httpmock.RegisterResponder("GET", client.clientUrl,
+	httpmock.RegisterResponder("GET", client.clientURL,
 		httpmock.NewStringResponder(200, `{"blockbook": {"lastBlockTime": "2019-12-27T03:48:06.17252601Z"}, "backend": {"blocks": 100000, "bestblockhash": "000000000000000000059db7d02e5a408dea5a55a44276fa89551749103590fa"}}`))
 
-	httpmock.RegisterResponder("GET", client.clientUrl+"/block-index/99999",
+	httpmock.RegisterResponder("GET", client.clientURL+"/block-index/99999",
 		httpmock.NewStringResponder(200, `{"blockHash": "00000000000000000003657bf1583f9f9ef196cb80bb3c72aeecbb22f3c581c4"}`))
 
 	httpmock.Activate()

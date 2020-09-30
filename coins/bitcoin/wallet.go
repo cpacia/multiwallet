@@ -37,11 +37,10 @@ const maxFeePerByte = 200
 
 // BitcoinWallet extends wallet base and implements the
 // remaining functions for each interface.
-type BitcoinWallet struct {
+type BitcoinWallet struct { // nolint
 	base.WalletBase
 	testnet     bool
-	feeCache    *fees
-	feeUrl      string
+	feeURL      string
 	feeProvider base.FeeProvider
 }
 
@@ -50,15 +49,15 @@ type BitcoinWallet struct {
 func NewBitcoinWallet(cfg *base.WalletConfig) (*BitcoinWallet, error) {
 	w := &BitcoinWallet{
 		testnet: cfg.Testnet,
-		feeUrl:  cfg.FeeUrl,
+		feeURL:  cfg.FeeURL,
 	}
 
-	chainClient, err := blockbook.NewBlockbookClient(cfg.ClientUrl, iwallet.CtBitcoin)
+	chainClient, err := blockbook.NewBlockbookClient(cfg.ClientURL, iwallet.CtBitcoin)
 	if err != nil {
 		return nil, err
 	}
 
-	fp := base.NewAPIFeeProvider(cfg.FeeUrl, iwallet.NewAmount(maxFeePerByte))
+	fp := base.NewAPIFeeProvider(cfg.FeeURL, iwallet.NewAmount(maxFeePerByte))
 
 	w.ChainClient = chainClient
 	w.DB = cfg.DB
@@ -652,16 +651,8 @@ func (w *BitcoinWallet) ReleaseFundsAfterTimeout(wtx iwallet.Tx, txn iwallet.Tra
 func (w *BitcoinWallet) params() *chaincfg.Params {
 	if w.testnet {
 		return &chaincfg.TestNet3Params
-	} else {
-		return &chaincfg.MainNetParams
 	}
-}
-
-type fees struct {
-	Priority uint64 `json:"priority"`
-	Normal   uint64 `json:"normal"`
-	Economic uint64 `json:"economic"`
-	expires  time.Time
+	return &chaincfg.MainNetParams
 }
 
 func (w *BitcoinWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Address, feeLevel iwallet.FeeLevel) (*wire.MsgTx, error) {
@@ -695,7 +686,7 @@ func (w *BitcoinWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Ad
 		allCoins = append(allCoins, coin)
 	}
 	inputSource := func(target btcutil.Amount) (total btcutil.Amount, inputs []*wire.TxIn, inputValues []btcutil.Amount, scripts [][]byte, err error) {
-		coinSelector := coinset.MaxValueAgeCoinSelector{MaxInputs: 10000, MinChangeAmount: btcutil.Amount(txrules.DefaultRelayFeePerKb)}
+		coinSelector := coinset.MaxValueAgeCoinSelector{MaxInputs: 10000, MinChangeAmount: txrules.DefaultRelayFeePerKb}
 		coins, err := coinSelector.CoinSelect(btcutil.Amount(target.ToUnit(btcutil.AmountSatoshi)), allCoins)
 		if err != nil {
 			err = base.ErrInsufficientFunds

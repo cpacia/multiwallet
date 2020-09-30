@@ -11,8 +11,8 @@ import (
 	hd "github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/cpacia/multiwallet/database"
 	iwallet "github.com/cpacia/wallet-interface"
-	"github.com/jinzhu/gorm"
 	"golang.org/x/crypto/pbkdf2"
+	"gorm.io/gorm"
 	"io"
 	"sync"
 	"time"
@@ -107,6 +107,10 @@ func NewKeychain(db database.Database, coinType iwallet.CoinType, addressFunc fu
 	if err != nil {
 		return nil, err
 	}
+	externalPubkey, internalPubkey, err = generateAccountPubKeys(accountPubKey)
+	if err != nil {
+		return nil, err
+	}
 
 	if !coinRecord.EncryptedMasterKey {
 		accountPrivKey, err := hd.NewKeyFromString(coinRecord.MasterPriv)
@@ -114,15 +118,6 @@ func NewKeychain(db database.Database, coinType iwallet.CoinType, addressFunc fu
 			return nil, err
 		}
 		externalPrivkey, internalPrivkey, err = generateAccountPrivKeys(accountPrivKey)
-		if err != nil {
-			return nil, err
-		}
-		externalPubkey, internalPubkey, err = generateAccountPubKeys(accountPubKey)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		externalPubkey, internalPubkey, err = generateAccountPubKeys(accountPubKey)
 		if err != nil {
 			return nil, err
 		}
@@ -431,7 +426,7 @@ func (kc *Keychain) GetAddresses() ([]iwallet.Address, error) {
 	err := kc.db.Update(func(tx database.Tx) error {
 		return tx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Find(&records).Error
 	})
-	if err != nil && !gorm.IsRecordNotFoundError(err) {
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
 	var addrs []iwallet.Address
@@ -515,7 +510,7 @@ func (kc *Keychain) HasKey(addr iwallet.Address) (bool, error) {
 	err := kc.db.View(func(tx database.Tx) error {
 		var record database.AddressRecord
 		err := tx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Where("addr=?", addr.String()).First(&record).Error
-		if err != nil && !gorm.IsRecordNotFoundError(err) {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		} else if err == nil {
 			has = true
@@ -626,11 +621,11 @@ func (kc *Keychain) createNewKeys(dbtx database.Tx, change bool, numKeys int) er
 		generatedKeys = 0
 	)
 	err := dbtx.Read().Order("key_index desc").Where("coin=?", kc.coinType.CurrencyCode()).Where("change=?", change).First(&record).Error
-	if err != nil && !gorm.IsRecordNotFoundError(err) {
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
 	nextIndex := record.KeyIndex + 1
-	if gorm.IsRecordNotFoundError(err) {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		nextIndex = 0
 	}
 	for generatedKeys < numKeys {
@@ -673,7 +668,7 @@ func (kc *Keychain) createNewKeys(dbtx database.Tx, change bool, numKeys int) er
 func (kc *Keychain) getLookaheadWindows(dbtx database.Tx) (internalUnused, externalUnused int, err error) {
 	var addressRecords []database.AddressRecord
 	rerr := dbtx.Read().Where("coin=?", kc.coinType.CurrencyCode()).Find(&addressRecords).Error
-	if rerr != nil && !gorm.IsRecordNotFoundError(rerr) {
+	if rerr != nil && !errors.Is(rerr, gorm.ErrRecordNotFound) {
 		err = rerr
 		return
 	}

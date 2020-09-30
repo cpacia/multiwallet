@@ -86,10 +86,10 @@ func init() {
 
 // ZCashWallet extends wallet base and implements the
 // remaining functions for each interface.
-type ZCashWallet struct {
+type ZCashWallet struct { // nolint
 	base.WalletBase
 	testnet     bool
-	feeUrl      string
+	feeURL      string
 	feeProvider base.FeeProvider
 }
 
@@ -98,10 +98,10 @@ type ZCashWallet struct {
 func NewZCashWallet(cfg *base.WalletConfig) (*ZCashWallet, error) {
 	w := &ZCashWallet{
 		testnet: cfg.Testnet,
-		feeUrl:  cfg.FeeUrl,
+		feeURL:  cfg.FeeURL,
 	}
 
-	chainClient, err := blockbook.NewBlockbookClient(cfg.ClientUrl, iwallet.CtZCash)
+	chainClient, err := blockbook.NewBlockbookClient(cfg.ClientURL, iwallet.CtZCash)
 	if err != nil {
 		return nil, err
 	}
@@ -598,12 +598,11 @@ func (w *ZCashWallet) params() *chaincfg.Params {
 			chaincfg.Register(&TestNetParams)
 		}
 		return &TestNetParams
-	} else {
-		if !chaincfg.IsRegistered(&MainNetParams) {
-			chaincfg.Register(&MainNetParams)
-		}
-		return &MainNetParams
 	}
+	if !chaincfg.IsRegistered(&MainNetParams) {
+		chaincfg.Register(&MainNetParams)
+	}
+	return &MainNetParams
 }
 
 func (w *ZCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Address, feeLevel iwallet.FeeLevel) (*wire.MsgTx, error) {
@@ -637,7 +636,7 @@ func (w *ZCashWallet) buildTx(dbtx database.Tx, amount int64, iaddr iwallet.Addr
 		allCoins = append(allCoins, coin)
 	}
 	inputSource := func(target btc.Amount) (total btc.Amount, inputs []*wire.TxIn, inputValues []btc.Amount, scripts [][]byte, err error) {
-		coinSelector := coinset.MaxValueAgeCoinSelector{MaxInputs: 10000, MinChangeAmount: btc.Amount(txrules.DefaultRelayFeePerKb)}
+		coinSelector := coinset.MaxValueAgeCoinSelector{MaxInputs: 10000, MinChangeAmount: txrules.DefaultRelayFeePerKb}
 		coins, err := coinSelector.CoinSelect(btc.Amount(target.ToUnit(btc.AmountSatoshi)), allCoins)
 		if err != nil {
 			err = base.ErrInsufficientFunds
