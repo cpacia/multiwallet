@@ -81,6 +81,7 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 				DB:        db,
 				ClientURL: clientURL,
 				Testnet:   cfg.UseTestnet,
+				ExchangeRateProvider: cfg.ExchangeRateProvider,
 			})
 			if err != nil {
 				return nil, err
@@ -114,6 +115,7 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 				DB:        db,
 				ClientURL: clientURL,
 				Testnet:   cfg.UseTestnet,
+				ExchangeRateProvider: cfg.ExchangeRateProvider,
 			})
 			if err != nil {
 				return nil, err
@@ -130,6 +132,7 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 				DB:        db,
 				ClientURL: clientURL,
 				Testnet:   cfg.UseTestnet,
+				ExchangeRateProvider: cfg.ExchangeRateProvider,
 			})
 			if err != nil {
 				return nil, err
