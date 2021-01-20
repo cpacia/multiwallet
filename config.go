@@ -13,8 +13,6 @@ var (
 	DefaultLogDir  = path.Join(DefaultHomeDir, "logs")
 )
 
-const infuraAPIKey = "v3/91c82af0169c4115940c76d331410749"
-
 // Option is a multiwallet option type.
 type Option func(*Config) error
 
@@ -41,7 +39,6 @@ var Defaults = func(cfg *Config) error {
 		iwallet.CtBitcoinCash,
 		iwallet.CtLitecoin,
 		iwallet.CtZCash,
-		iwallet.CtEthereum,
 	}
 	cfg.WalletAPIs = map[iwallet.CoinType]APIUrls{
 		iwallet.CtBitcoinCash: {
@@ -59,10 +56,6 @@ var Defaults = func(cfg *Config) error {
 		iwallet.CtZCash: {
 			Mainnet: "https://zec.blockbook.api.openbazaar.org/api",
 			Testnet: "https://tzec.blockbook.api.openbazaar.org/api",
-		},
-		iwallet.CtEthereum: {
-			Mainnet: "https://mainnet.infura.io/" + infuraAPIKey,
-			Testnet: "https://rinkeby.infura.io/" + infuraAPIKey,
 		},
 	}
 	cfg.LogLevel = logging.INFO

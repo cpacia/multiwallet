@@ -15,14 +15,12 @@ require (
 	github.com/cpacia/proxyclient v0.0.0-20191212063311-f03265f1fade
 	github.com/cpacia/wallet-interface v0.0.0-20200604163334-1be951c8f4bd
 	github.com/dchest/blake256 v1.1.0 // indirect
-	github.com/ethereum/go-ethereum v1.9.10-0.20200106112538-7a509b47321a
+	github.com/ethereum/go-ethereum v1.9.25
 	github.com/gcash/bchd v0.15.3-0.20200229013353-8c1fa57b15e7
 	github.com/gcash/bchutil v0.0.0-20200228172631-5e1930e5d630
 	github.com/gcash/bchwallet v0.8.2
 	github.com/go-ole/go-ole v1.2.4 // indirect
 	github.com/gorilla/websocket v1.4.1
-	github.com/hashicorp/golang-lru v0.5.4 // indirect
-	github.com/huin/goupnp v1.0.0 // indirect
 	github.com/jarcoal/httpmock v1.0.4
 	github.com/ltcsuite/ltcd v0.20.1-beta
 	github.com/ltcsuite/ltcutil v0.0.0-20191227053721-6bec450ea6ad
@@ -37,8 +35,7 @@ require (
 	github.com/natefinch/lumberjack v2.0.0+incompatible
 	github.com/op/go-logging v0.0.0-20160315200505-970db520ece7
 	github.com/pkg/errors v0.9.1 // indirect
-	golang.org/x/crypto v0.0.0-20200221231518-2aa609cf4a9d
-	golang.org/x/sys v0.0.0-20200107162124-548cf772de50 // indirect
+	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 	google.golang.org/grpc v1.25.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gorm.io/driver/sqlite v1.1.3

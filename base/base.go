@@ -66,6 +66,9 @@ func (tx *DBTx) Rollback() error {
 	return nil
 }
 
+// AddrFunc is a function to convert an HD key to an address.
+type AddrFunc func(key *hd.ExtendedKey) (iwallet.Address, error)
+
 type subscription struct {
 	blockSub chan iwallet.BlockInfo
 	txSub    chan iwallet.Transaction
@@ -83,7 +86,7 @@ type WalletBase struct {
 	DB           database.Database
 	CoinType     iwallet.CoinType
 	Logger       *logging.Logger
-	AddressFunc  func(key *hd.ExtendedKey) (iwallet.Address, error)
+	AddressFunc  AddrFunc
 
 	rebroacaster     *Rebroadcaster
 	subscriptionChan chan *subscription

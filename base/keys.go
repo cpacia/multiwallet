@@ -88,7 +88,7 @@ type Keychain struct {
 // deriving keys for other coins. Further, we only generate addresses using the master
 // public key keys so we do not need the master private key to generate new addresses.
 // This allows us to encrypt the master private key if the user desires.
-func NewKeychain(db database.Database, coinType iwallet.CoinType, addressFunc func(key *hd.ExtendedKey) (iwallet.Address, error), opts ...KeychainOption) (*Keychain, error) {
+func NewKeychain(db database.Database, coinType iwallet.CoinType, addressFunc AddrFunc, opts ...KeychainOption) (*Keychain, error) {
 	cfg := KeychainConfig{LookaheadWindowSize: defaultLookaheadWindow}
 	if err := cfg.Apply(opts...); err != nil {
 		return nil, err

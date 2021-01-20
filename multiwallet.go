@@ -6,7 +6,6 @@ import (
 	"github.com/cpacia/multiwallet/base"
 	"github.com/cpacia/multiwallet/coins/bitcoin"
 	"github.com/cpacia/multiwallet/coins/bitcoincash"
-	"github.com/cpacia/multiwallet/coins/ethereum"
 	"github.com/cpacia/multiwallet/coins/litecoin"
 	"github.com/cpacia/multiwallet/coins/zcash"
 	"github.com/cpacia/multiwallet/database"
@@ -77,10 +76,10 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 				clientURL = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := bitcoincash.NewBitcoinCashWallet(&base.WalletConfig{
-				Logger:    logger,
-				DB:        db,
-				ClientURL: clientURL,
-				Testnet:   cfg.UseTestnet,
+				Logger:               logger,
+				DB:                   db,
+				ClientURL:            clientURL,
+				Testnet:              cfg.UseTestnet,
 				ExchangeRateProvider: cfg.ExchangeRateProvider,
 			})
 			if err != nil {
@@ -111,10 +110,10 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 				clientURL = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := litecoin.NewLitecoinWallet(&base.WalletConfig{
-				Logger:    logger,
-				DB:        db,
-				ClientURL: clientURL,
-				Testnet:   cfg.UseTestnet,
+				Logger:               logger,
+				DB:                   db,
+				ClientURL:            clientURL,
+				Testnet:              cfg.UseTestnet,
 				ExchangeRateProvider: cfg.ExchangeRateProvider,
 			})
 			if err != nil {
@@ -128,27 +127,11 @@ func NewMultiwallet(opts ...Option) (Multiwallet, error) {
 				clientURL = cfg.WalletAPIs[coinType].Testnet
 			}
 			w, err := zcash.NewZCashWallet(&base.WalletConfig{
-				Logger:    logger,
-				DB:        db,
-				ClientURL: clientURL,
-				Testnet:   cfg.UseTestnet,
+				Logger:               logger,
+				DB:                   db,
+				ClientURL:            clientURL,
+				Testnet:              cfg.UseTestnet,
 				ExchangeRateProvider: cfg.ExchangeRateProvider,
-			})
-			if err != nil {
-				return nil, err
-			}
-
-			multiwallet[coinType] = w
-		case iwallet.CtEthereum:
-			clientURL := cfg.WalletAPIs[coinType].Mainnet
-			if cfg.UseTestnet {
-				clientURL = cfg.WalletAPIs[coinType].Testnet
-			}
-			w, err := ethereum.NewEthereumWallet(&base.WalletConfig{
-				Logger:    logger,
-				DB:        db,
-				ClientURL: clientURL,
-				Testnet:   cfg.UseTestnet,
 			})
 			if err != nil {
 				return nil, err
